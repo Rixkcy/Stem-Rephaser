@@ -1,7 +1,7 @@
 @echo off
-title AI MIDI Stem Engine & Authentic MIDI Generator
+title Stem Rephaser ^& Media Sanitizer Suite
 echo ===================================================
-echo   AI MIDI STEM ENGINE & AUTHENTIC GENERATOR
+echo   STEM REPHASER ^& MEDIA SANITIZER SUITE
 echo ===================================================
 echo.
 echo Launching web interface...
