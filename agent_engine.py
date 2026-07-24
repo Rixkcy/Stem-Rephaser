@@ -21,12 +21,15 @@ SUPPORTED_MODELS = [
 ]
 
 def call_gemini_with_failover(prompt, system_instruction="You are an expert AI music producer, MIDI analyzer, and agentic assistant."):
+    """
+    Calls Gemini API with API key failover, retries, and rate limit backoff.
+    """
     last_error = None
 
-    for key in API_KEYS:
+    for key_idx, key in enumerate(API_KEYS):
         client = genai.Client(api_key=key)
         for model_name in SUPPORTED_MODELS:
-            for attempt in range(2):
+            for attempt in range(3): # 3 retries per model
                 try:
                     config = types.GenerateContentConfig(
                         system_instruction=system_instruction,
@@ -42,7 +45,12 @@ def call_gemini_with_failover(prompt, system_instruction="You are an expert AI m
                         return response.text.strip()
                 except Exception as e:
                     last_error = e
-                    time.sleep(1)
+                    err_str = str(e)
+                    if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str:
+                        sleep_time = 4.0 + attempt * 2.0  # Exponential backoff for rate limits
+                        time.sleep(sleep_time)
+                    else:
+                        time.sleep(1.5)
                     continue
                     
     raise RuntimeError(f"Gemini API failover exhausted. Last error: {last_error}")
@@ -74,7 +82,6 @@ def extract_json_block(text):
             except Exception:
                 pass
                 
-        # Regex list extractor fallback
         match_list = re.search(r'\[\s*\{[\s\S]*\}\s*\]', json_str)
         if match_list:
             cleaned_list = re.sub(r',\s*([\]}])', r'\1', match_list.group(0))
@@ -83,7 +90,6 @@ def extract_json_block(text):
             except Exception:
                 pass
 
-        # Note-by-note regex extraction fallback
         notes = []
         for m in re.finditer(r'\{\s*"bar"\s*:\s*(\d+)[\s\S]*?"beat"\s*:\s*([\d\.]+)[\s\S]*?"pitch"\s*:\s*(\d+)[\s\S]*?"vel"\s*:\s*(\d+)[\s\S]*?"dur"\s*:\s*([\d\.]+)\s*\}', text):
             notes.append({
@@ -155,12 +161,11 @@ Return strictly JSON format:
 def llm_pattern_reconstruction(midi1_data, midi2_data, instrument_type="Drums", user_feedback=None):
     """
     LLM Pattern Recognition & Reconstruction Engine:
-    Processes the song in 16-bar chunks so Gemini Flash LLM generates COMPLETE, untruncated note streams.
+    Processes the song in 16-bar chunks with rate-limit delays so all chunks succeed.
     """
     total_bars = max(midi1_data['total_bars'], midi2_data['total_bars'])
     bpm = midi1_data.get('bpm', 120)
     
-    # Extract note maps by bar
     map1 = {}
     for b in midi1_data['bars']:
         map1[b['bar']] = b['notes']
@@ -175,6 +180,10 @@ def llm_pattern_reconstruction(midi1_data, midi2_data, instrument_type="Drums", 
     for chunk_start in range(1, total_bars + 1, chunk_size):
         chunk_end = min(total_bars, chunk_start + chunk_size - 1)
         
+        # Pacing delay between chunk API calls to respect rate limits
+        if chunk_start > 1:
+            time.sleep(3.0)
+            
         notes1_chunk = []
         for bar in range(chunk_start, chunk_end + 1):
             for n in map1.get(bar, []):
