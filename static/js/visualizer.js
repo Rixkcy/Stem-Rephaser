@@ -17,6 +17,11 @@ function switchTab(tabName) {
         tabSanitizerBtn.classList.remove('active');
         tabMidiView.classList.remove('hidden');
         tabSanitizerView.classList.add('hidden');
+        
+        // Re-render canvases if data is present
+        if (currentJobData) {
+            setTimeout(redrawAllCanvases, 100);
+        }
     } else {
         tabSanitizerBtn.classList.add('active');
         tabMidiBtn.classList.remove('active');
@@ -98,25 +103,31 @@ function playSynthSound(pitch, type = 'kick') {
     }
 }
 
-// 3-Way Piano-Roll Canvas Renderer
+// Robust Piano-Roll Canvas Renderer with explicit parent width fallback
 function renderPianoRollCanvas(canvasId, barDataOrNotes, blueprintSections = [], mainColor = '#00f0ff') {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const parentBox = canvas.parentElement;
+    const parentWidth = parentBox ? parentBox.clientWidth : 0;
+    const displayWidth = Math.max(900, parentWidth > 0 ? parentWidth - 32 : 1200);
+    const displayHeight = 160;
+
+    canvas.style.width = displayWidth + 'px';
+    canvas.style.height = displayHeight + 'px';
+    canvas.width = displayWidth * dpr;
+    canvas.height = displayHeight * dpr;
     ctx.scale(dpr, dpr);
 
-    const w = rect.width;
-    const h = rect.height;
+    const w = displayWidth;
+    const h = displayHeight;
     ctx.clearRect(0, 0, w, h);
 
     // Extract flat note list
     let notes = [];
-    let totalBars = 32;
+    let totalBars = 64;
 
     if (Array.isArray(barDataOrNotes) && barDataOrNotes.length > 0 && barDataOrNotes[0].bar && barDataOrNotes[0].notes) {
         totalBars = barDataOrNotes.length;
@@ -138,10 +149,10 @@ function renderPianoRollCanvas(canvasId, barDataOrNotes, blueprintSections = [],
         }
     }
 
-    if (totalBars === 0) totalBars = 32;
+    if (totalBars === 0) totalBars = 64;
     const barWidth = w / totalBars;
 
-    // 1. Draw Section Background Badges
+    // 1. Draw Section Background Highlights & Labels
     blueprintSections.forEach(sec => {
         const startX = (sec.start_bar - 1) * barWidth;
         const secW = (sec.end_bar - sec.start_bar + 1) * barWidth;
@@ -154,24 +165,29 @@ function renderPianoRollCanvas(canvasId, barDataOrNotes, blueprintSections = [],
         ctx.fillStyle = bg;
         ctx.fillRect(startX, 0, secW, h);
 
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.font = '9px JetBrains Mono';
-        ctx.fillText(sec.type, startX + 4, 12);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+        ctx.font = '10px JetBrains Mono';
+        ctx.fillText(sec.type, startX + 4, 14);
     });
 
-    // 2. Draw Bar Dividers
+    // 2. Draw Bar Lines & Numbers
     for (let i = 0; i <= totalBars; i++) {
         const x = i * barWidth;
-        ctx.strokeStyle = i % 4 === 0 ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.05)';
+        ctx.strokeStyle = i % 4 === 0 ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.04)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, h);
         ctx.stroke();
+
+        if (i > 0 && i % 4 === 0 && i < totalBars) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.font = '8px JetBrains Mono';
+            ctx.fillText(`Bar ${i}`, x + 2, h - 4);
+        }
     }
 
     // 3. Draw Piano Roll Notes
-    // Pitch range 32 to 84 (52 semitones)
     const minP = 32;
     const maxP = 84;
     const pRange = maxP - minP;
@@ -186,32 +202,47 @@ function renderPianoRollCanvas(canvasId, barDataOrNotes, blueprintSections = [],
         const noteX = (bar - 1) * barWidth + (beat / 4.0) * barWidth;
         const noteW = Math.max(3, (dur / 4.0) * barWidth);
         
-        // Inverted Y (higher pitch = higher Y)
         const relP = (pitch - minP) / pRange;
         const noteY = h - (relP * (h - 24)) - 16;
-        const noteH = 6;
+        const noteH = 5;
 
-        // Alpha based on velocity
         const alpha = Math.min(1.0, Math.max(0.4, vel / 127.0));
         ctx.fillStyle = mainColor;
         ctx.globalAlpha = alpha;
 
-        // Draw note block
-        ctx.beginPath();
-        ctx.roundRect(noteX, noteY, noteW, noteH, 2);
-        ctx.fill();
+        ctx.fillRect(noteX, noteY, noteW, noteH);
         ctx.globalAlpha = 1.0;
     });
 }
 
-// UI Event Controllers
+function redrawAllCanvases() {
+    if (!currentJobData) return;
+    const blueprintSections = currentJobData.blueprint ? currentJobData.blueprint.sections : [];
+    
+    if (currentJobData.midi1) {
+        renderPianoRollCanvas('midi1Canvas', currentJobData.midi1.bars, blueprintSections, '#00f0ff');
+    }
+    if (currentJobData.midi2) {
+        renderPianoRollCanvas('midi2Canvas', currentJobData.midi2.bars, blueprintSections, '#7000ff');
+    }
+    if (currentStemsData) {
+        const genNotes = currentStemsData.stems_data.drums.length > 0 ? currentStemsData.stems_data.drums : 
+                        (currentStemsData.stems_data.piano.length > 0 ? currentStemsData.stems_data.piano : currentStemsData.stems_data.guitar);
+        renderPianoRollCanvas('genCanvas', genNotes, blueprintSections, '#10b981');
+    }
+}
+
+window.addEventListener('resize', () => {
+    redrawAllCanvases();
+});
+
+// UI Event Handlers
 document.addEventListener('DOMContentLoaded', () => {
     const file1Input = document.getElementById('midi1File');
     const file2Input = document.getElementById('midi2File');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const generateBtn = document.getElementById('generateBtn');
     const rerunFeedbackBtn = document.getElementById('rerunFeedbackBtn');
-    const instrumentSelect = document.getElementById('instrumentTypeSelect');
 
     setupDropZone('zone1', 'midi1File', 'file1Name');
     setupDropZone('zone2', 'midi2File', 'file2Name');
@@ -247,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
     generateBtn.addEventListener('click', () => runPatternGenerator());
     rerunFeedbackBtn.addEventListener('click', () => runPatternGenerator(document.getElementById('userFeedbackText').value));
 
-    // Audio Sanitizer
+    // Audio Sanitizer Setup
     const audioInput = document.getElementById('audioFilesInput');
     const audioLabel = document.getElementById('audioFilesLabel');
     const startSanitizerBtn = document.getElementById('startSanitizerBtn');
@@ -297,7 +328,7 @@ async function runPatternGenerator(userFeedback = null) {
     const instType = document.getElementById('instrumentTypeSelect').value;
 
     const targetBtn = userFeedback ? rerunBtn : generateBtn;
-    setLoading(targetBtn, true, userFeedback ? 'Rerunning with Feedback...' : 'Running Pattern Recognition...');
+    setLoading(targetBtn, true, userFeedback ? 'Rerunning with Feedback...' : 'Running Pattern Recognition (approx 15s)...');
 
     try {
         const res = await fetch('/api/generate', {
@@ -370,7 +401,8 @@ function setLoading(btn, isLoading, text) {
 }
 
 function displayAnalysisResults(data) {
-    document.getElementById('analysisSection').classList.remove('hidden');
+    const analysisSec = document.getElementById('analysisSection');
+    analysisSec.classList.remove('hidden');
 
     const blueprint = data.blueprint;
     const badgeContainer = document.getElementById('blueprintBadges');
@@ -386,13 +418,21 @@ function displayAnalysisResults(data) {
         b.innerText = `Bars ${sec.start_bar}-${sec.end_bar}: ${sec.type}`;
         badgeContainer.appendChild(b);
     });
+
+    // Render Timeline 1 and Timeline 2 immediately after analysis
+    setTimeout(() => {
+        renderPianoRollCanvas('midi1Canvas', data.midi1.bars, blueprint.sections, '#00f0ff');
+        renderPianoRollCanvas('midi2Canvas', data.midi2.bars, blueprint.sections, '#7000ff');
+        renderPianoRollCanvas('genCanvas', [], blueprint.sections, '#10b981');
+    }, 50);
 }
 
 function displayGeneratedStems(data) {
-    document.getElementById('outputSection').classList.remove('hidden');
+    const outputSec = document.getElementById('outputSection');
+    outputSec.classList.remove('hidden');
+    
     const downloads = data.downloads;
     
-    // Set master download and ZIP links
     const masterBtn = document.getElementById('downloadMasterBtn');
     masterBtn.href = downloads['reconstructed_master.mid'];
 
@@ -404,7 +444,6 @@ function displayGeneratedStems(data) {
         dlNotice.innerText = `Auto-Exported to: ${data.downloads_path}`;
     }
 
-    // Set individual stem download links
     document.getElementById('dlKick').href = downloads['kick.mid'];
     document.getElementById('dlSnare').href = downloads['snare.mid'];
     document.getElementById('dlHiHat').href = downloads['hihat.mid'];
@@ -412,16 +451,18 @@ function displayGeneratedStems(data) {
     document.getElementById('dlPiano').href = downloads['piano.mid'];
     document.getElementById('dlGuitar').href = downloads['guitar.mid'];
 
-    // Render 3-Way Piano Roll Canvases
+    // Render Timeline 3 (Generated Reconstructed AI MIDI)
     const blueprintSections = currentJobData ? currentJobData.blueprint.sections : [];
-    renderPianoRollCanvas('midi1Canvas', data.midi1_data.bars, blueprintSections, '#00f0ff');
-    renderPianoRollCanvas('midi2Canvas', data.midi2_data.bars, blueprintSections, '#7000ff');
+    
+    setTimeout(() => {
+        renderPianoRollCanvas('midi1Canvas', data.midi1_data.bars, blueprintSections, '#00f0ff');
+        renderPianoRollCanvas('midi2Canvas', data.midi2_data.bars, blueprintSections, '#7000ff');
 
-    const genNotes = data.stems_data.drums.length > 0 ? data.stems_data.drums : 
-                    (data.stems_data.piano.length > 0 ? data.stems_data.piano : data.stems_data.guitar);
-    renderPianoRollCanvas('genCanvas', genNotes, blueprintSections, '#10b981');
+        const genNotes = data.stems_data.drums.length > 0 ? data.stems_data.drums : 
+                        (data.stems_data.piano.length > 0 ? data.stems_data.piano : data.stems_data.guitar);
+        renderPianoRollCanvas('genCanvas', genNotes, blueprintSections, '#10b981');
+    }, 50);
 
-    // Audio Previews
     const stems = data.stems_data;
     document.getElementById('playKick').onclick = () => playStemSequence(stems.drums, 'kick');
     document.getElementById('playSnare').onclick = () => playStemSequence(stems.drums, 'snare');

@@ -65,22 +65,46 @@
                 </div>
             </div>
 
-            <!-- Step 2: Blueprint Analysis & Generation Trigger -->
+            <!-- Step 2: Song Section Blueprint & 3 Piano-Roll Timelines -->
             <div class="card hidden" id="analysisSection">
                 <div class="card-header">
-                    <div class="card-title">2. Song Section Blueprint</div>
+                    <div class="card-title">2. Song Blueprint & Visual 3-Timeline Piano-Roll</div>
                     <div id="blueprintBadges" class="badge-container"></div>
                 </div>
 
-                <div style="margin-top: 16px; text-align: center;">
+                <!-- Stacked 3 Piano-Roll Timelines -->
+                <div style="display: flex; flex-direction: column; gap: 20px; margin-top: 16px;">
+                    <div>
+                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #00f0ff;">Timeline 1: Input MIDI 1 Piano-Roll</div>
+                        <div class="timeline-box">
+                            <canvas id="midi1Canvas" height="160"></canvas>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #7000ff;">Timeline 2: Input MIDI 2 Piano-Roll</div>
+                        <div class="timeline-box">
+                            <canvas id="midi2Canvas" height="160"></canvas>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #10b981;">Timeline 3: Generated Reconstructed AI MIDI (Cleaned & Pattern-Filled)</div>
+                        <div class="timeline-box" style="border: 2px solid #10b981;">
+                            <canvas id="genCanvas" height="160"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 24px; text-align: center;">
                     <button class="btn" id="generateBtn" disabled>⚡ Run LLM Pattern Recognition & Reconstruct MIDI</button>
                 </div>
             </div>
 
-            <!-- Step 3: 3-Way Piano-Roll Visualizer, Feedback Loop & Exports -->
+            <!-- Step 3: Feedback Rerun & Stem Downloads Grid -->
             <div class="card hidden" id="outputSection">
                 <div class="card-header">
-                    <div class="card-title">3. Visual Piano-Roll Comparison & Stem Downloads</div>
+                    <div class="card-title">3. Export & Interactive Refinement</div>
                     <div style="display: flex; gap: 10px;">
                         <a class="btn" id="downloadMasterBtn" download="reconstructed.mid">⬇️ Download Reconstructed MIDI</a>
                         <a class="btn btn-secondary" id="downloadZipBtn" download="authentic_stems_midi.zip">📦 Download ZIP</a>
@@ -89,30 +113,6 @@
 
                 <div id="downloadsPathNotice" class="badge badge-constant" style="margin-bottom: 20px; text-align: left; display: block;">
                     Auto-Exported to: C:\Users\ricky\Downloads\
-                </div>
-
-                <!-- Stacked 3-Way Piano-Roll Canvases -->
-                <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 24px;">
-                    <div>
-                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #00f0ff;">Input MIDI 1 Piano-Roll</div>
-                        <div class="timeline-box">
-                            <canvas id="midi1Canvas"></canvas>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #7000ff;">Input MIDI 2 Piano-Roll</div>
-                        <div class="timeline-box">
-                            <canvas id="midi2Canvas"></canvas>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #10b981;">✨ Generated Reconstructed AI MIDI Piano-Roll (Cleaned & Pattern-Filled)</div>
-                        <div class="timeline-box" style="border: 2px solid #10b981;">
-                            <canvas id="genCanvas"></canvas>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Interactive Rerun Feedback Box -->
