@@ -1,10 +1,29 @@
-// AI MIDI Visualizer & Tone Web Audio Synth Engine
+// Unified Suite: Stem Rephaser & Media Sanitizer JavaScript Controller
 
 let currentJobData = null;
 let currentStemsData = null;
 let audioCtx = null;
-let isPlaying = false;
-let playInterval = null;
+let sanitizerPollInterval = null;
+
+// Tab Switching
+function switchTab(tabName) {
+    const tabMidiBtn = document.getElementById('tabMidiBtn');
+    const tabSanitizerBtn = document.getElementById('tabSanitizerBtn');
+    const tabMidiView = document.getElementById('tabMidiView');
+    const tabSanitizerView = document.getElementById('tabSanitizerView');
+
+    if (tabName === 'midi') {
+        tabMidiBtn.classList.add('active');
+        tabSanitizerBtn.classList.remove('active');
+        tabMidiView.classList.remove('hidden');
+        tabSanitizerView.classList.add('hidden');
+    } else {
+        tabSanitizerBtn.classList.add('active');
+        tabMidiBtn.classList.remove('active');
+        tabSanitizerView.classList.remove('hidden');
+        tabMidiView.classList.add('hidden');
+    }
+}
 
 function initAudio() {
     if (!audioCtx) {
@@ -32,7 +51,6 @@ function playSynthSound(pitch, type = 'kick') {
         osc.start(now);
         osc.stop(now + 0.15);
     } else if (type === 'snare') {
-        // Noise burst + triangle tone
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'triangle';
@@ -44,7 +62,6 @@ function playSynthSound(pitch, type = 'kick') {
         osc.start(now);
         osc.stop(now + 0.2);
     } else if (type === 'hihat') {
-        // High frequency click
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'square';
@@ -67,7 +84,6 @@ function playSynthSound(pitch, type = 'kick') {
         osc.start(now);
         osc.stop(now + 0.5);
     } else {
-        // Piano / Guitar melodic note
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         const freq = 440 * Math.pow(2, (pitch - 69) / 12);
@@ -103,7 +119,6 @@ function renderTimelineCanvas(canvasId, barData, blueprintSections = []) {
 
     const barWidth = w / totalBars;
 
-    // 1. Draw Section Background Highlights
     blueprintSections.forEach(sec => {
         const startX = (sec.start_bar - 1) * barWidth;
         const secW = (sec.end_bar - sec.start_bar + 1) * barWidth;
@@ -116,17 +131,14 @@ function renderTimelineCanvas(canvasId, barData, blueprintSections = []) {
         ctx.fillStyle = bg;
         ctx.fillRect(startX, 0, secW, h);
 
-        // Draw Section Label Text
         ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
         ctx.font = '10px JetBrains Mono';
         ctx.fillText(sec.type, startX + 6, 14);
     });
 
-    // 2. Draw Note Density Bars & Bar Dividers
     barData.forEach((bar, idx) => {
         const x = idx * barWidth;
 
-        // Bar Line
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -134,12 +146,10 @@ function renderTimelineCanvas(canvasId, barData, blueprintSections = []) {
         ctx.lineTo(x, h);
         ctx.stroke();
 
-        // Density Bar
         const maxDensityHeight = h - 30;
         const densityH = bar.rhythmic_density * maxDensityHeight;
         const y = h - densityH - 5;
 
-        // Gradient based on velocity
         const grad = ctx.createLinearGradient(0, y, 0, h);
         grad.addColorStop(0, '#00f0ff');
         grad.addColorStop(1, '#7000ff');
@@ -147,7 +157,6 @@ function renderTimelineCanvas(canvasId, barData, blueprintSections = []) {
         ctx.fillStyle = grad;
         ctx.fillRect(x + 2, y, Math.max(2, barWidth - 4), densityH);
 
-        // Note dots
         if (bar.notes) {
             bar.notes.forEach(note => {
                 const noteX = x + (note.beat / 4.0) * barWidth;
@@ -163,12 +172,12 @@ function renderTimelineCanvas(canvasId, barData, blueprintSections = []) {
 
 // UI Event Handlers
 document.addEventListener('DOMContentLoaded', () => {
+    // --- TAB 1: MIDI STREAMS SETUP ---
     const file1Input = document.getElementById('midi1File');
     const file2Input = document.getElementById('midi2File');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const generateBtn = document.getElementById('generateBtn');
 
-    // Drag and drop setup
     setupDropZone('zone1', 'midi1File', 'file1Name');
     setupDropZone('zone2', 'midi2File', 'file2Name');
 
@@ -226,6 +235,47 @@ document.addEventListener('DOMContentLoaded', () => {
             setLoading(generateBtn, false, '⚡ Generate Authentic Replacement MIDIs');
         }
     });
+
+    // --- TAB 2: AUDIO SANITIZER SETUP ---
+    const audioInput = document.getElementById('audioFilesInput');
+    const audioLabel = document.getElementById('audioFilesLabel');
+    const startSanitizerBtn = document.getElementById('startSanitizerBtn');
+
+    setupDropZone('zoneAudio', 'audioFilesInput', 'audioFilesLabel');
+
+    audioInput.addEventListener('change', () => {
+        if (audioInput.files.length > 0) {
+            audioLabel.innerText = `${audioInput.files.length} audio file(s) selected`;
+        }
+    });
+
+    startSanitizerBtn.addEventListener('click', async () => {
+        if (!audioInput.files || audioInput.files.length === 0) {
+            alert('Please select audio file(s) to sanitize.');
+            return;
+        }
+
+        const formData = new FormData();
+        for (let i = 0; i < audioInput.files.length; i++) {
+            formData.append('files', audioInput.files[i]);
+        }
+        formData.append('pitch_shift_cents', document.getElementById('pitchShiftInput').value);
+        formData.append('wow_drift', document.getElementById('wowDriftInput').value);
+
+        setLoading(startSanitizerBtn, true, 'Submitting Audio Job...');
+
+        try {
+            const res = await fetch('/api/sanitize_upload', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(data.error || 'Failed to submit audio job.');
+
+            startSanitizationPolling(data.job_id);
+        } catch (err) {
+            alert(err.message);
+            setLoading(startSanitizerBtn, false, '✨ Start Media Sanitization');
+        }
+    });
 });
 
 function setupDropZone(zoneId, inputId, labelId) {
@@ -233,9 +283,13 @@ function setupDropZone(zoneId, inputId, labelId) {
     const input = document.getElementById(inputId);
     const label = document.getElementById(labelId);
 
+    if (!zone || !input || !label) return;
+
     zone.addEventListener('click', () => input.click());
     input.addEventListener('change', () => {
-        if (input.files[0]) label.innerText = input.files[0].name;
+        if (input.files[0] && input.files.length === 1) {
+            label.innerText = input.files[0].name;
+        }
     });
 
     zone.addEventListener('dragover', (e) => {
@@ -250,7 +304,11 @@ function setupDropZone(zoneId, inputId, labelId) {
         zone.classList.remove('dragover');
         if (e.dataTransfer.files.length) {
             input.files = e.dataTransfer.files;
-            label.innerText = input.files[0].name;
+            if (input.files.length === 1) {
+                label.innerText = input.files[0].name;
+            } else {
+                label.innerText = `${input.files.length} file(s) selected`;
+            }
         }
     });
 }
@@ -293,7 +351,6 @@ function displayGeneratedStems(data) {
     const zipBtn = document.getElementById('downloadZipBtn');
     zipBtn.href = downloads.zip;
 
-    // Set individual stem download links
     document.getElementById('dlKick').href = downloads['kick.mid'];
     document.getElementById('dlSnare').href = downloads['snare.mid'];
     document.getElementById('dlHiHat').href = downloads['hihat.mid'];
@@ -301,7 +358,6 @@ function displayGeneratedStems(data) {
     document.getElementById('dlPiano').href = downloads['piano.mid'];
     document.getElementById('dlGuitar').href = downloads['guitar.mid'];
 
-    // Play preview buttons
     const stems = data.stems_data;
     document.getElementById('playKick').onclick = () => playStemSequence(stems.drums, 'kick');
     document.getElementById('playSnare').onclick = () => playStemSequence(stems.drums, 'snare');
@@ -315,7 +371,6 @@ function playStemSequence(notes, type) {
     if (!notes || notes.length === 0) return;
     initAudio();
     
-    // Sort notes and schedule synth audio playback
     const bpm = currentJobData ? currentJobData.blueprint.bpm : 120;
     const secPerBeat = 60.0 / bpm;
 
@@ -325,4 +380,63 @@ function playStemSequence(notes, type) {
             playSynthSound(n.pitch, type);
         }, delay * 1000);
     });
+}
+
+// Media Sanitizer Job Polling
+function startSanitizationPolling(jobId) {
+    const card = document.getElementById('sanitizerResultsCard');
+    const bar = document.getElementById('sanitizerProgressBar');
+    const text = document.getElementById('sanitizerProgressText');
+    const grid = document.getElementById('sanitizerOutputGrid');
+    const startBtn = document.getElementById('startSanitizerBtn');
+
+    card.classList.remove('hidden');
+    grid.innerHTML = '';
+
+    if (sanitizerPollInterval) clearInterval(sanitizerPollInterval);
+
+    sanitizerPollInterval = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/job_status/${jobId}`);
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(data.error || 'Job failed');
+
+            bar.style.width = `${data.progress_pct}%`;
+            text.innerText = data.progress;
+
+            if (data.status === 'completed') {
+                clearInterval(sanitizerPollInterval);
+                setLoading(startBtn, false, '✨ Start Media Sanitization');
+                document.getElementById('sanitizerStatusBadge').innerText = 'Completed';
+                document.getElementById('sanitizerStatusBadge').className = 'badge badge-constant';
+
+                grid.innerHTML = '';
+                data.files.forEach(f => {
+                    const card = document.createElement('div');
+                    card.className = 'stem-card';
+                    card.innerHTML = `
+                        <div class="stem-card-header">
+                            <div class="stem-title">🔊 ${f.name}</div>
+                            <span class="badge badge-constant">Sanitized WAV</span>
+                        </div>
+                        <div class="stem-actions">
+                            <a class="btn" href="${f.url}" download="${f.name}">Download Audio</a>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+            } else if (data.status === 'failed') {
+                clearInterval(sanitizerPollInterval);
+                setLoading(startBtn, false, '✨ Start Media Sanitization');
+                text.innerText = `Error: ${data.error}`;
+                document.getElementById('sanitizerStatusBadge').innerText = 'Failed';
+                document.getElementById('sanitizerStatusBadge').className = 'badge badge-drop';
+            }
+        } catch (err) {
+            clearInterval(sanitizerPollInterval);
+            setLoading(startBtn, false, '✨ Start Media Sanitization');
+            text.innerText = `Error: ${err.message}`;
+        }
+    }, 1000);
 }
