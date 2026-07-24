@@ -13,11 +13,10 @@
             <div class="logo-icon">🎛️</div>
             <div>
                 <h1>Stem Rephaser & Media Sanitizer</h1>
-                <div class="subtitle">AI Blueprint MIDI Stem Generator & Audio Watermark Evasion Suite</div>
+                <div class="subtitle">LLM Pattern Recognition MIDI Generator & Audio Sanitization Suite</div>
             </div>
         </div>
         
-        <!-- Navigation Tabs -->
         <div class="nav-tabs">
             <button class="nav-tab active" id="tabMidiBtn" onclick="switchTab('midi')">🎵 Stem Rephaser (MIDI)</button>
             <button class="nav-tab" id="tabSanitizerBtn" onclick="switchTab('sanitizer')">🛡️ Media Sanitizer (Audio)</button>
@@ -28,11 +27,21 @@
 
         <!-- TAB 1: STEM REPHASER & AI MIDI GENERATOR -->
         <div id="tabMidiView">
-            <!-- Step 1: Upload Inputs -->
+            <!-- Step 1: Upload Inputs & Select Instrument -->
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">1. Upload Transcribed AI MIDIs</div>
-                    <div class="file-info">Upload 2 MIDI files transcribed from Suno AI stems for cross-analysis</div>
+                    <div class="card-title">1. Upload Transcribed MIDIs & Choose Instrument</div>
+                    <div class="file-info">Upload 2 MIDI files transcribed from Suno AI stems for LLM pattern recognition</div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label class="file-label">Stem Instrument Type:</label>
+                    <select id="instrumentTypeSelect" class="input-field" style="max-width: 300px;">
+                        <option value="Drums" selected>🥁 Drums (FPC / GM Kit)</option>
+                        <option value="Keyboard">🎹 Keyboard / Piano</option>
+                        <option value="Guitar">🎸 Guitar</option>
+                        <option value="Bass">🎸 Bass</option>
+                    </select>
                 </div>
                 
                 <div class="upload-grid">
@@ -56,41 +65,67 @@
                 </div>
             </div>
 
-            <!-- Step 2: Blueprint Analysis & Visualizer -->
+            <!-- Step 2: Blueprint Analysis & Generation Trigger -->
             <div class="card hidden" id="analysisSection">
                 <div class="card-header">
-                    <div class="card-title">2. Master Blueprint & Section Analysis</div>
+                    <div class="card-title">2. Song Section Blueprint</div>
                     <div id="blueprintBadges" class="badge-container"></div>
                 </div>
 
-                <div style="display: flex; flex-direction: column; gap: 16px;">
+                <div style="margin-top: 16px; text-align: center;">
+                    <button class="btn" id="generateBtn" disabled>⚡ Run LLM Pattern Recognition & Reconstruct MIDI</button>
+                </div>
+            </div>
+
+            <!-- Step 3: 3-Way Piano-Roll Visualizer, Feedback Loop & Exports -->
+            <div class="card hidden" id="outputSection">
+                <div class="card-header">
+                    <div class="card-title">3. Visual Piano-Roll Comparison & Stem Downloads</div>
+                    <div style="display: flex; gap: 10px;">
+                        <a class="btn" id="downloadMasterBtn" download="reconstructed.mid">⬇️ Download Reconstructed MIDI</a>
+                        <a class="btn btn-secondary" id="downloadZipBtn" download="authentic_stems_midi.zip">📦 Download ZIP</a>
+                    </div>
+                </div>
+
+                <div id="downloadsPathNotice" class="badge badge-constant" style="margin-bottom: 20px; text-align: left; display: block;">
+                    Auto-Exported to: C:\Users\ricky\Downloads\
+                </div>
+
+                <!-- Stacked 3-Way Piano-Roll Canvases -->
+                <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 24px;">
                     <div>
-                        <div class="file-info" style="margin-bottom: 6px;">MIDI 1 Beat & Density Timeline</div>
+                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #00f0ff;">Input MIDI 1 Piano-Roll</div>
                         <div class="timeline-box">
                             <canvas id="midi1Canvas"></canvas>
                         </div>
                     </div>
 
                     <div>
-                        <div class="file-info" style="margin-bottom: 6px;">MIDI 2 Beat & Density Timeline</div>
+                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #7000ff;">Input MIDI 2 Piano-Roll</div>
                         <div class="timeline-box">
                             <canvas id="midi2Canvas"></canvas>
                         </div>
                     </div>
+
+                    <div>
+                        <div class="file-info" style="margin-bottom: 6px; font-weight: 600; color: #10b981;">✨ Generated Reconstructed AI MIDI Piano-Roll (Cleaned & Pattern-Filled)</div>
+                        <div class="timeline-box" style="border: 2px solid #10b981;">
+                            <canvas id="genCanvas"></canvas>
+                        </div>
+                    </div>
                 </div>
 
-                <div style="margin-top: 24px; text-align: center;">
-                    <button class="btn" id="generateBtn" disabled>⚡ Generate Authentic Replacement MIDIs</button>
-                </div>
-            </div>
-
-            <!-- Step 3: Generated Authentic Stems Output -->
-            <div class="card hidden" id="outputSection">
-                <div class="card-header">
-                    <div class="card-title">3. Generated Authentic Split Stems (FL Studio Ready)</div>
-                    <a class="btn" id="downloadZipBtn" download="authentic_stems_midi.zip">📦 Download All Stems (ZIP)</a>
+                <!-- Interactive Rerun Feedback Box -->
+                <div class="card" style="background: rgba(0, 240, 255, 0.03); border: 1px dashed var(--primary); margin-bottom: 24px;">
+                    <div class="card-title" style="font-size: 16px; margin-bottom: 8px;">🔄 Iterative Refinement & Prompt Feedback</div>
+                    <div class="file-info" style="margin-bottom: 12px;">Notice missing hits or want specific pattern tweaks? Provide feedback below and rerun:</div>
+                    <textarea id="userFeedbackText" class="input-field" rows="2" placeholder="e.g. Add a heavy crash cymbal on bar 9, make the hi-hat pattern 16th note triplets in bar 16..."></textarea>
+                    <div style="margin-top: 12px; text-align: right;">
+                        <button class="btn" id="rerunFeedbackBtn">🔄 Rerun AI Generator with Feedback</button>
+                    </div>
                 </div>
 
+                <!-- Stem Audio Previews & Downloads Grid -->
                 <div class="stems-grid">
                     <div class="stem-card">
                         <div class="stem-card-header">
@@ -142,7 +177,7 @@
 
                     <div class="stem-card">
                         <div class="stem-card-header">
-                            <div class="stem-title">🎹 Piano</div>
+                            <div class="stem-title">🎹 Piano / Keyboards</div>
                             <span class="badge badge-constant">FLEX / VST</span>
                         </div>
                         <div class="file-info">Clean harmonic blueprint chords</div>
@@ -200,7 +235,6 @@
                 </div>
             </div>
 
-            <!-- Sanitizer Progress & Results -->
             <div class="card hidden" id="sanitizerResultsCard" style="margin-top: 24px;">
                 <div class="card-header">
                     <div class="card-title">Processing Status</div>

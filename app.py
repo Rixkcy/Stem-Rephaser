@@ -18,12 +18,11 @@ import midi_builder
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
 app.config['OUTPUT_FOLDER'] = os.path.join(os.path.dirname(__file__), 'output')
-app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # 64 MB max upload
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
 
-# Async job tracking for Media Sanitizer
 sanitizer_jobs = {}
 
 # ==========================================
@@ -129,20 +128,9 @@ def process_audio_files_async(job_id, input_files, pitch_shift_cents=24, wow_dri
             if len(audio.shape) == 1:
                 audio = np.column_stack([audio, audio])
                 
-            # 1. 3D Spatial Widening + Haas delay
             audio_3d = spatialise_3d(audio, sr=sr, width=1.5, delay_ms=24)
-            
-            # 2. Resampled Pitch Shift
-            if pitch_shift_cents != 0:
-                audio_pitched = apply_pitch_shift(audio_3d, sr=sr, cents=pitch_shift_cents)
-            else:
-                audio_pitched = audio_3d
-                
-            # 3. Micro Wow & Flutter Drift
-            if wow_drift > 0:
-                audio_final = apply_micro_wow(audio_pitched, drift=wow_drift, sr=sr)
-            else:
-                audio_final = audio_pitched
+            audio_pitched = apply_pitch_shift(audio_3d, sr=sr, cents=pitch_shift_cents) if pitch_shift_cents != 0 else audio_3d
+            audio_final = apply_micro_wow(audio_pitched, drift=wow_drift, sr=sr) if wow_drift > 0 else audio_pitched
                 
             out_filename = os.path.splitext(fname)[0] + ' [Sanitized].wav'
             out_filepath = os.path.join(job_out_dir, out_filename)
@@ -188,8 +176,8 @@ def analyze_midi():
     job_dir = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
     os.makedirs(job_dir, exist_ok=True)
     
-    path1 = os.path.join(job_dir, 'input_stem1.mid')
-    path2 = os.path.join(job_dir, 'input_stem2.mid')
+    path1 = os.path.join(job_dir, file1.filename.replace(' ', '_'))
+    path2 = os.path.join(job_dir, file2.filename.replace(' ', '_'))
     
     file1.save(path1)
     file2.save(path2)
@@ -202,6 +190,10 @@ def analyze_midi():
         
         return jsonify({
             'job_id': job_id,
+            'file1_path': path1,
+            'file2_path': path2,
+            'filename1': file1.filename,
+            'filename2': file2.filename,
             'midi1': data1,
             'midi2': data2,
             'blueprint': blueprint
@@ -217,36 +209,57 @@ def generate_midi():
         
     job_id = req['job_id']
     blueprint = req['blueprint']
+    instrument_type = req.get('instrument_type', 'Drums')
+    user_feedback = req.get('user_feedback', None)
     
     job_upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
-    path1 = os.path.join(job_upload_dir, 'input_stem1.mid')
-    path2 = os.path.join(job_upload_dir, 'input_stem2.mid')
-    
-    if not os.path.exists(path1) or not os.path.exists(path2):
-        return jsonify({'error': 'Job files not found.'}), 404
+    upload_files = os.listdir(job_upload_dir)
+    if len(upload_files) < 2:
+        return jsonify({'error': 'Job upload files missing.'}), 404
         
+    path1 = os.path.join(job_upload_dir, upload_files[0])
+    path2 = os.path.join(job_upload_dir, upload_files[1])
+    
     try:
         data1 = midi_parser.parse_midi_file(path1)
         data2 = midi_parser.parse_midi_file(path2)
         
-        stems_data = agent_engine.generate_authentic_stems(blueprint, data1, data2)
+        # LLM Pattern Recognition Engine & User Feedback
+        stems_data = agent_engine.generate_authentic_stems(
+            blueprint, data1, data2,
+            instrument_type=instrument_type,
+            user_feedback=user_feedback
+        )
         
         job_output_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
         bpm = blueprint.get('bpm', 120)
-        files = midi_builder.build_split_midi_files(stems_data, job_output_dir, bpm=bpm)
+        base_name = os.path.splitext(upload_files[0])[0]
+        
+        files = midi_builder.build_split_midi_files(
+            stems_data, job_output_dir, bpm=bpm,
+            target_downloads_dir=r"C:\Users\ricky\Downloads",
+            original_filename_base=base_name
+        )
         
         download_urls = {
             k: f"/api/download/{job_id}/{os.path.basename(v)}"
-            for k, v in files.items()
+            for k, v in files.items() if k != 'downloads_path'
         }
         
         return jsonify({
             'job_id': job_id,
             'downloads': download_urls,
-            'stems_data': stems_data
+            'downloads_path': files.get('downloads_path', ''),
+            'stems_data': stems_data,
+            'midi1_data': data1,
+            'midi2_data': data2
         })
     except Exception as e:
         return jsonify({'error': f"Error generating replacement MIDIs: {str(e)}"}), 500
+
+@app.route('/api/rerun_feedback', methods=['POST'])
+def rerun_feedback():
+    return generate_midi()
 
 # --- TAB 2: MEDIA SANITIZER ENDPOINTS ---
 
@@ -285,12 +298,11 @@ def job_status(job_id):
         return jsonify({'error': 'Job not found'}), 404
     return jsonify(sanitizer_jobs[job_id])
 
-# Shared File Download Endpoint
 @app.route('/api/download/<job_id>/<filename>')
 def download_file(job_id, filename):
     job_output_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
     return send_from_directory(job_output_dir, filename, as_attachment=True)
 
 if __name__ == '__main__':
-    print("Starting Unified AI MIDI Stem & Media Sanitizer Suite on http://127.0.0.1:5000 ...")
+    print("Starting Unified AI MIDI Stem Engine & Media Sanitizer Suite on http://127.0.0.1:5000 ...")
     app.run(host='0.0.0.0', port=5000, debug=True)

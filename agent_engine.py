@@ -33,7 +33,7 @@ def call_gemini_with_failover(prompt, system_instruction="You are an expert AI m
                 try:
                     config = types.GenerateContentConfig(
                         system_instruction=system_instruction,
-                        temperature=0.3,
+                        temperature=0.2,
                         max_output_tokens=8192
                     )
                     response = client.models.generate_content(
@@ -59,13 +59,11 @@ def extract_json_block(text):
     else:
         json_str = text
         
-    # Clean up common LLM JSON syntax errors (trailing commas, quotes)
     json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
     
     try:
         return json.loads(json_str)
     except json.JSONDecodeError:
-        # Fallback 1: Extract main dict
         match_raw = re.search(r'\{[\s\S]*\}', json_str)
         if match_raw:
             cleaned = re.sub(r',\s*([\]}])', r'\1', match_raw.group(0))
@@ -74,10 +72,10 @@ def extract_json_block(text):
             except Exception:
                 pass
                 
-        # Fallback 2: Robust regex object extraction for note lists
-        drums_notes = []
+        # Regex note extractor fallback
+        notes = []
         for m in re.finditer(r'\{\s*"bar"\s*:\s*(\d+)[\s\S]*?"beat"\s*:\s*([\d\.]+)[\s\S]*?"pitch"\s*:\s*(\d+)[\s\S]*?"vel"\s*:\s*(\d+)[\s\S]*?"dur"\s*:\s*([\d\.]+)\s*\}', text):
-            drums_notes.append({
+            notes.append({
                 "bar": int(m.group(1)),
                 "beat": float(m.group(2)),
                 "pitch": int(m.group(3)),
@@ -85,12 +83,13 @@ def extract_json_block(text):
                 "dur": float(m.group(5))
             })
             
-        if drums_notes:
-            return {"drums": drums_notes, "piano": [], "guitar": []}
+        if notes:
+            return {"notes": notes, "drums": notes}
             
-        raise ValueError("Could not parse JSON from response")
+        raise ValueError("Could not parse JSON note structure from response")
 
 def analyze_master_blueprint(midi1_data, midi2_data):
+    """Stage 1: Analyzes overall structure and section markers."""
     total_bars = max(midi1_data['total_bars'], midi2_data['total_bars'])
     bpm = midi1_data.get('bpm', 120)
     
@@ -105,37 +104,25 @@ def analyze_master_blueprint(midi1_data, midi2_data):
     } for b in midi2_data['bars']]
     
     prompt = f"""
-You are an expert music analyst. We have 2 MIDI files transcribed from Suno AI stems for the exact same song/stem.
-Your job is to cross-reference both files to identify the song structure blueprint.
+You are an expert music analyst. Cross-reference these 2 MIDI files transcribed from Suno AI stems for the exact same song/stem.
 
 Song Info:
 - Total Bars: {total_bars}
 - BPM: {bpm}
 
-MIDI 1 Summary (Bar by Bar):
+MIDI 1 Summary:
 {json.dumps(summary1[:64])}
 
-MIDI 2 Summary (Bar by Bar):
+MIDI 2 Summary:
 {json.dumps(summary2[:64])}
 
-Analyze note counts, density, and velocity curves to identify structural sections.
-Label each section with one of these exact types:
-- "CONSTANT_BEAT": Steady, recurring rhythmic foundation/groove.
-- "BUILD_UP": Rising note density, increasing velocity/crescendo leading to a drop.
-- "BREAK_DROP": Sudden drop, high energy punch, heavy beat or breakdown.
-- "SLOW": Sparse notes, low density, slow/mellow feel.
-
-Return strictly a JSON object with this exact key structure:
+Label each section with one of: "CONSTANT_BEAT", "BUILD_UP", "BREAK_DROP", "SLOW".
+Return JSON:
 {{
   "total_bars": {total_bars},
   "bpm": {bpm},
   "sections": [
-    {{
-      "start_bar": 1,
-      "end_bar": 8,
-      "type": "CONSTANT_BEAT",
-      "description": "Steady intro groove"
-    }}
+    {{"start_bar": 1, "end_bar": 8, "type": "CONSTANT_BEAT", "description": "Intro groove"}}
   ]
 }}
 """
@@ -144,166 +131,139 @@ Return strictly a JSON object with this exact key structure:
         blueprint = extract_json_block(response_text)
         return blueprint
     except Exception as e:
-        print(f"Gemini API Blueprint analysis fallback triggered: {e}")
+        print(f"Blueprint analysis fallback: {e}")
         sections = []
         q = max(1, total_bars // 4)
-        sections.append({"start_bar": 1, "end_bar": q, "type": "CONSTANT_BEAT", "description": "Intro Groove"})
-        sections.append({"start_bar": q + 1, "end_bar": q * 2, "type": "BUILD_UP", "description": "Rhythm Build-Up"})
-        sections.append({"start_bar": q * 2 + 1, "end_bar": q * 3, "type": "BREAK_DROP", "description": "Main Beat Drop"})
-        sections.append({"start_bar": q * 3 + 1, "end_bar": total_bars, "type": "SLOW", "description": "Outro Breakdown"})
+        sections.append({"start_bar": 1, "end_bar": q, "type": "CONSTANT_BEAT", "description": "Intro"})
+        sections.append({"start_bar": q + 1, "end_bar": q * 2, "type": "BUILD_UP", "description": "Build-up"})
+        sections.append({"start_bar": q * 2 + 1, "end_bar": q * 3, "type": "BREAK_DROP", "description": "Drop"})
+        sections.append({"start_bar": q * 3 + 1, "end_bar": total_bars, "type": "SLOW", "description": "Outro"})
         return {"total_bars": total_bars, "bpm": bpm, "sections": sections}
 
-def generate_authentic_stems(blueprint, midi1_data, midi2_data):
-    total_bars = blueprint['total_bars']
-    sections = blueprint['sections']
+def llm_pattern_reconstruction(midi1_data, midi2_data, instrument_type="Drums", user_feedback=None):
+    """
+    LLM Pattern Recognition & Reconstruction Engine:
+    Receives full note event listings of MIDI 1 and MIDI 2, performs pattern recognition,
+    fills missing hits, purges spurious ghost hits, normalizes pitches, quantizes timing,
+    and incorporates user feedback if provided.
+    """
+    total_bars = max(midi1_data['total_bars'], midi2_data['total_bars'])
+    bpm = midi1_data.get('bpm', 120)
     
+    # Prepare full bar-by-bar note streams
+    notes1 = []
+    for b in midi1_data['bars']:
+        for n in b['notes']:
+            notes1.append({'bar': b['bar'], 'beat': n['beat'], 'pitch': n['pitch'], 'vel': n['vel'], 'dur': n['dur']})
+            
+    notes2 = []
+    for b in midi2_data['bars']:
+        for n in b['notes']:
+            notes2.append({'bar': b['bar'], 'beat': n['beat'], 'pitch': n['pitch'], 'vel': n['vel'], 'dur': n['dur']})
+
+    feedback_instruction = ""
+    if user_feedback:
+        feedback_instruction = f"""
+IMPORTANT USER FEEDBACK FOR THIS REVISION:
+"{user_feedback}"
+Apply these exact modifications to the pattern generation!
+"""
+
     prompt = f"""
-You are an expert drum programmer and FL Studio producer.
-Generate authentic, humanized replacement MIDI notes for:
-1. Drums (FPC / General MIDI note layout):
-   - Kick: Note 36 (C3)
-   - Snare: Note 38 (D3), Rimshot: Note 37
-   - Closed Hi-Hat: Note 42 (F#3), Open Hi-Hat: Note 46 (A#3)
-   - Crash Cymbal: Note 49 (C#4), Ride: Note 51
-2. Piano (Melodic/Harmonic chord notes, e.g. pitches 60-76)
-3. Guitar (Rhythmic/Arpeggio notes, e.g. pitches 48-67)
+You are an elite AI MIDI producer and pattern recognition engine.
+We are reconstructing an authentic '{instrument_type}' stem from 2 raw AI-transcribed MIDI files.
 
-Master Blueprint Sections:
-{json.dumps(sections)}
+Song Parameters:
+- Total Bars: {total_bars}
+- BPM: {bpm}
+- Instrument Type: {instrument_type}
 
-Rules:
-1. Generate notes from bar 1 to bar {total_bars}.
-2. Ensure humanized velocity dynamics (range 75 to 118, never flat 100).
-3. Respect section dynamics:
-   - CONSTANT_BEAT: Kick on beat 0 and 2, Snare on beat 1 and 3, 8th note hi-hats.
-   - BUILD_UP: 16th note snare rolls with rising velocities (60 -> 115) near the end.
-   - BREAK_DROP: Heavy Kick + Crash on beat 0, syncopated snare & hats.
-   - SLOW: Sparse kick on beat 0, subtle closed hats on beat 2.
-4. Output beats in range 0.0 to 3.75 per bar (4 beats per bar).
+{feedback_instruction}
 
-Return strictly JSON format:
+MIDI FILE 1 NOTE STREAM (Total {len(notes1)} notes):
+{json.dumps(notes1[:250])}
+
+MIDI FILE 2 NOTE STREAM (Total {len(notes2)} notes):
+{json.dumps(notes2[:250])}
+
+YOUR PATTERN RECONSTRUCTION TASK:
+1. PATTERN RECOGNITION: Analyze repeating 2-bar, 4-bar, and 8-bar rhythmic/harmonic patterns across all {total_bars} bars.
+2. FILL MISSING HITS: If a hit is missing in one file but present in the other (or required by the repeating pattern), ADD IT.
+3. REMOVE EXCESSIVE / GHOST HITS: Filter out spurious ghost artifacts (such as pitch 81 velocity < 25 artifacts or erratic random hits).
+4. STANDARD INSTRUMENT MAPPING:
+   For Drums (General MIDI / FPC layout):
+   - Kick: Pitch 36 (C3)
+   - Snare: Pitch 38 (D3), Rimshot: Pitch 37
+   - Closed Hi-Hat: Pitch 42 (F#3), Open Hi-Hat: Pitch 46 (A#3)
+   - Crash Cymbal: Pitch 49 (C#4), Ride: Pitch 51
+   - Toms: Pitches 45, 47, 48, 50
+   For Piano/Keyboard or Guitar: Map clean chord/melody pitches (48-84) with proper duration holds.
+5. QUANTIZE & HUMANIZE: Align beats to exact 16th-note positions (0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75) while preserving humanized velocity dynamics (75-120).
+
+Return strictly JSON with this key structure:
 {{
-  "drums": [
+  "notes": [
     {{"bar": 1, "beat": 0.0, "pitch": 36, "vel": 105, "dur": 0.25}},
     {{"bar": 1, "beat": 0.0, "pitch": 49, "vel": 110, "dur": 0.5}},
-    {{"bar": 1, "beat": 1.0, "pitch": 38, "vel": 95, "dur": 0.25}}
-  ],
-  "piano": [
-    {{"bar": 1, "beat": 0.0, "pitch": 60, "vel": 85, "dur": 1.0}}
-  ],
-  "guitar": [
-    {{"bar": 1, "beat": 0.5, "pitch": 52, "vel": 78, "dur": 0.5}}
+    {{"bar": 1, "beat": 1.0, "pitch": 38, "vel": 98, "dur": 0.25}},
+    {{"bar": 1, "beat": 2.0, "pitch": 36, "vel": 102, "dur": 0.25}},
+    {{"bar": 1, "beat": 3.0, "pitch": 38, "vel": 95, "dur": 0.25}}
   ]
 }}
 """
     try:
         response_text = call_gemini_with_failover(prompt)
-        candidate = extract_json_block(response_text)
+        res = extract_json_block(response_text)
+        reconstructed_notes = res.get('notes', res.get('drums', []))
+        if not reconstructed_notes:
+            raise ValueError("No notes array returned from LLM")
     except Exception as e:
-        print(f"Gemini API stem generation fallback triggered: {e}")
-        candidate = generate_algorithmic_stems(blueprint)
-        
-    critic_passed, refined_candidate = critic_loop_evaluation(candidate, blueprint)
-    return refined_candidate
+        print(f"Gemini LLM pattern reconstruction fallback: {e}")
+        reconstructed_notes = fallback_pattern_merge(notes1, notes2, total_bars)
 
-def critic_loop_evaluation(candidate, blueprint):
-    total_bars = blueprint['total_bars']
-    drums = candidate.get('drums', [])
-    piano = candidate.get('piano', [])
-    guitar = candidate.get('guitar', [])
-    
-    bars_with_drums = set(n.get('bar') for n in drums)
-    if len(bars_with_drums) < total_bars:
-        drums = fill_missing_drum_bars(drums, blueprint)
+    # Format into instrument stems object
+    if instrument_type.lower() == 'drums':
+        stems_data = {'drums': reconstructed_notes, 'piano': [], 'guitar': []}
+    elif 'piano' in instrument_type.lower() or 'keyboard' in instrument_type.lower():
+        stems_data = {'drums': [], 'piano': reconstructed_notes, 'guitar': []}
+    else:
+        stems_data = {'drums': [], 'piano': [], 'guitar': reconstructed_notes}
         
-    if not piano:
-        piano = generate_algorithmic_piano(blueprint)
+    return stems_data
+
+def fallback_pattern_merge(notes1, notes2, total_bars):
+    """Algorithmic backup if Gemini API fails or times out."""
+    merged = []
+    # Combine notes, map pitch 81 -> 42 (Hi-Hat), filter low velocity ghost notes
+    for n in notes1 + notes2:
+        p = n['pitch']
+        v = n['vel']
+        if p == 81 and v < 30: continue # Purge ghost note
+        if p == 81: p = 42
+        if p == 37: p = 36 # Rim count-in -> Kick
         
-    if not guitar:
-        guitar = generate_algorithmic_guitar(blueprint)
+        # Quantize beat to nearest 16th note (0.25 step)
+        q_beat = round(n['beat'] * 4) / 4.0
         
-    for n in drums:
-        if n.get('vel', 90) == 100 or 'vel' not in n:
-            n['vel'] = random.randint(82, 112)
+        merged.append({
+            'bar': n['bar'],
+            'beat': min(3.75, max(0.0, q_beat)),
+            'pitch': p,
+            'vel': max(70, min(120, v if v > 51 else random.randint(85, 112))),
+            'dur': n['dur']
+        })
+        
+    # Deduplicate notes at same bar, beat, pitch
+    seen = set()
+    deduped = []
+    for n in merged:
+        key = (n['bar'], n['beat'], n['pitch'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(n)
             
-    candidate['drums'] = drums
-    candidate['piano'] = piano
-    candidate['guitar'] = guitar
-    
-    return True, candidate
+    deduped.sort(key=lambda x: (x['bar'], x['beat'], x['pitch']))
+    return deduped
 
-def generate_algorithmic_stems(blueprint):
-    total_bars = blueprint['total_bars']
-    sections = blueprint.get('sections', [])
-    
-    drums = []
-    for bar in range(1, total_bars + 1):
-        sec_type = "CONSTANT_BEAT"
-        for s in sections:
-            if s['start_bar'] <= bar <= s['end_bar']:
-                sec_type = s['type']
-                break
-                
-        if sec_type == "BUILD_UP":
-            drums.append({'bar': bar, 'beat': 0.0, 'pitch': 36, 'vel': 100, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 0.0, 'pitch': 49, 'vel': 110, 'dur': 0.5})
-            for b in [0.0, 0.5, 1.0, 1.5, 2.0, 2.25, 2.5, 2.75, 3.0, 3.125, 3.25, 3.375, 3.5, 3.625, 3.75]:
-                vel = int(60 + (b / 4.0) * 55)
-                drums.append({'bar': bar, 'beat': b, 'pitch': 38, 'vel': vel, 'dur': 0.125})
-        elif sec_type == "BREAK_DROP":
-            drums.append({'bar': bar, 'beat': 0.0, 'pitch': 36, 'vel': 118, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 0.0, 'pitch': 49, 'vel': 115, 'dur': 0.5})
-            drums.append({'bar': bar, 'beat': 1.0, 'pitch': 38, 'vel': 110, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 1.5, 'pitch': 36, 'vel': 105, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 2.0, 'pitch': 36, 'vel': 112, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 3.0, 'pitch': 38, 'vel': 108, 'dur': 0.25})
-            for b in [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]:
-                drums.append({'bar': bar, 'beat': b, 'pitch': 42, 'vel': 92, 'dur': 0.25})
-        elif sec_type == "SLOW":
-            drums.append({'bar': bar, 'beat': 0.0, 'pitch': 36, 'vel': 88, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 2.0, 'pitch': 37, 'vel': 80, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 1.0, 'pitch': 42, 'vel': 75, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 3.0, 'pitch': 42, 'vel': 75, 'dur': 0.25})
-        else:
-            drums.append({'bar': bar, 'beat': 0.0, 'pitch': 36, 'vel': 105, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 1.0, 'pitch': 38, 'vel': 98, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 2.0, 'pitch': 36, 'vel': 102, 'dur': 0.25})
-            drums.append({'bar': bar, 'beat': 3.0, 'pitch': 38, 'vel': 100, 'dur': 0.25})
-            for b in [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]:
-                drums.append({'bar': bar, 'beat': b, 'pitch': 42, 'vel': 85, 'dur': 0.25})
-
-    return {
-        'drums': drums,
-        'piano': generate_algorithmic_piano(blueprint),
-        'guitar': generate_algorithmic_guitar(blueprint)
-    }
-
-def fill_missing_drum_bars(existing_drums, blueprint):
-    bars_present = set(n.get('bar') for n in existing_drums)
-    algo_stems = generate_algorithmic_stems(blueprint)
-    for n in algo_stems['drums']:
-        if n.get('bar') not in bars_present:
-            existing_drums.append(n)
-    existing_drums.sort(key=lambda x: (x['bar'], x['beat']))
-    return existing_drums
-
-def generate_algorithmic_piano(blueprint):
-    total_bars = blueprint['total_bars']
-    piano = []
-    chords = [[60, 64, 67], [59, 62, 67], [57, 60, 64], [53, 57, 60]]
-    for bar in range(1, total_bars + 1):
-        chord = chords[(bar - 1) % len(chords)]
-        for p in chord:
-            piano.append({'bar': bar, 'beat': 0.0, 'pitch': p, 'vel': 82, 'dur': 2.0})
-            piano.append({'bar': bar, 'beat': 2.0, 'pitch': p, 'vel': 80, 'dur': 1.8})
-    return piano
-
-def generate_algorithmic_guitar(blueprint):
-    total_bars = blueprint['total_bars']
-    guitar = []
-    notes = [48, 52, 55, 57, 60]
-    for bar in range(1, total_bars + 1):
-        for idx, beat in enumerate([0.5, 1.5, 2.5, 3.5]):
-            p = notes[(bar + idx) % len(notes)]
-            guitar.append({'bar': bar, 'beat': beat, 'pitch': p, 'vel': 76, 'dur': 0.4})
-    return guitar
+def generate_authentic_stems(blueprint, midi1_data, midi2_data, instrument_type="Drums", user_feedback=None):
+    return llm_pattern_reconstruction(midi1_data, midi2_data, instrument_type=instrument_type, user_feedback=user_feedback)
