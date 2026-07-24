@@ -1,0 +1,318 @@
+/* Modern Dark Cyberpunk / Glassmorphism Design System */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    --bg-dark: #0a0b10;
+    --bg-card: rgba(18, 20, 32, 0.75);
+    --border-color: rgba(255, 255, 255, 0.1);
+    --border-glow: rgba(0, 240, 255, 0.3);
+    
+    --primary: #00f0ff;
+    --primary-glow: rgba(0, 240, 255, 0.4);
+    --secondary: #7000ff;
+    --accent-pink: #ff007a;
+    
+    --sec-constant: #10b981;
+    --sec-buildup: #f59e0b;
+    --sec-drop: #ef4444;
+    --sec-slow: #8b5cf6;
+    
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --radius: 16px;
+    --font-main: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: var(--bg-dark);
+    color: var(--text-main);
+    font-family: var(--font-main);
+    min-height: 100vh;
+    background-image: 
+        radial-gradient(circle at 15% 20%, rgba(112, 0, 255, 0.15) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(0, 240, 255, 0.15) 0%, transparent 40%);
+    background-attachment: fixed;
+    padding-bottom: 60px;
+}
+
+header {
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(10, 11, 16, 0.85);
+    backdrop-filter: blur(12px);
+    padding: 20px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.logo-icon {
+    font-size: 28px;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    background: linear-gradient(90deg, #fff, var(--primary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.container {
+    max-width: 1400px;
+    margin: 30px auto;
+    padding: 0 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Glass Cards */
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    backdrop-filter: blur(16px);
+    border-radius: var(--radius);
+    padding: 24px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    border-color: var(--border-glow);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.card-title {
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Upload Grid */
+.upload-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.upload-zone {
+    border: 2px dashed rgba(0, 240, 255, 0.3);
+    border-radius: 12px;
+    padding: 32px 20px;
+    text-align: center;
+    background: rgba(0, 240, 255, 0.02);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--primary);
+    background: rgba(0, 240, 255, 0.08);
+    box-shadow: 0 0 20px var(--primary-glow);
+}
+
+.upload-icon {
+    font-size: 36px;
+    margin-bottom: 12px;
+}
+
+.file-label {
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.file-info {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+input[type="file"] {
+    display: none;
+}
+
+/* Buttons */
+.btn {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    border: none;
+    padding: 14px 28px;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 30px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0, 240, 255, 0.3);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 240, 255, 0.5);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-color);
+    box-shadow: none;
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* Blueprint Badges */
+.badge-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.badge {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.badge-constant { background: rgba(16, 185, 129, 0.2); color: var(--sec-constant); border: 1px solid var(--sec-constant); }
+.badge-buildup { background: rgba(245, 158, 11, 0.2); color: var(--sec-buildup); border: 1px solid var(--sec-buildup); }
+.badge-drop { background: rgba(239, 68, 68, 0.2); color: var(--sec-drop); border: 1px solid var(--sec-drop); }
+.badge-slow { background: rgba(139, 92, 246, 0.2); color: var(--sec-slow); border: 1px solid var(--sec-slow); }
+
+/* Timeline Visualizer */
+.timeline-box {
+    position: relative;
+    background: #0d0e15;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    overflow-x: auto;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 160px;
+    border-radius: 8px;
+}
+
+/* Stems Control Grid */
+.stems-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.stem-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+}
+
+.stem-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.stem-title {
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.stem-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+    background: var(--primary);
+    color: #000;
+    border-color: var(--primary);
+}
+
+/* Loader */
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: var(--primary);
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.hidden {
+    display: none !important;
+}

@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+uploads/*
+!uploads/.gitkeep
+output/*
+!output/.gitkeep
+test_run/
+.env
+*.zip
+*.mid

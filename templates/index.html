@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI MIDI Visualizer & Authentic Stem Generator</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <header>
+        <div class="logo-area">
+            <div class="logo-icon">🎛️</div>
+            <div>
+                <h1>AI MIDI Stem Engine</h1>
+                <div class="subtitle">Blueprint Analysis & Authentic Split MIDI Generation for FL Studio</div>
+            </div>
+        </div>
+        <div>
+            <span class="badge badge-constant">Gemini 3.5 Flash Lite Agentic Engine</span>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <!-- Step 1: Upload Inputs -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">1. Upload Transcribed AI MIDIs</div>
+                <div class="file-info">Upload 2 MIDI files transcribed from Suno AI stems for cross-analysis</div>
+            </div>
+            
+            <div class="upload-grid">
+                <div class="upload-zone" id="zone1">
+                    <div class="upload-icon">🎵</div>
+                    <div class="file-label" id="file1Name">Select or Drop MIDI File 1</div>
+                    <div class="file-info">Transcribed Stem Pass A</div>
+                    <input type="file" id="midi1File" accept=".mid,.midi">
+                </div>
+
+                <div class="upload-zone" id="zone2">
+                    <div class="upload-icon">🎶</div>
+                    <div class="file-label" id="file2Name">Select or Drop MIDI File 2</div>
+                    <div class="file-info">Transcribed Stem Pass B</div>
+                    <input type="file" id="midi2File" accept=".mid,.midi">
+                </div>
+            </div>
+
+            <div style="margin-top: 20px; text-align: right;">
+                <button class="btn" id="analyzeBtn">🔍 Cross-Analyze MIDIs</button>
+            </div>
+        </div>
+
+        <!-- Step 2: Blueprint Analysis & Visualizer -->
+        <div class="card hidden" id="analysisSection">
+            <div class="card-header">
+                <div class="card-title">2. Master Blueprint & Section Analysis</div>
+                <div id="blueprintBadges" class="badge-container"></div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+                <div>
+                    <div class="file-info" style="margin-bottom: 6px;">MIDI 1 Beat & Density Timeline</div>
+                    <div class="timeline-box">
+                        <canvas id="midi1Canvas"></canvas>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="file-info" style="margin-bottom: 6px;">MIDI 2 Beat & Density Timeline</div>
+                    <div class="timeline-box">
+                        <canvas id="midi2Canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 24px; text-align: center;">
+                <button class="btn" id="generateBtn" disabled>⚡ Generate Authentic Replacement MIDIs</button>
+            </div>
+        </div>
+
+        <!-- Step 3: Generated Authentic Stems Output -->
+        <div class="card hidden" id="outputSection">
+            <div class="card-header">
+                <div class="card-title">3. Generated Authentic Split Stems (FL Studio Ready)</div>
+                <a class="btn" id="downloadZipBtn" download="authentic_stems_midi.zip">📦 Download All Stems (ZIP)</a>
+            </div>
+
+            <div class="stems-grid">
+                <!-- Kick Card -->
+                <div class="stem-card">
+                    <div class="stem-card-header">
+                        <div class="stem-title">🥁 Kick Drum</div>
+                        <span class="badge badge-drop">FPC Pad 1 (C3)</span>
+                    </div>
+                    <div class="file-info">Authentic 4-on-the-floor & drop kick timing</div>
+                    <div class="stem-actions">
+                        <button class="btn-icon" id="playKick" title="Play Preview">▶</button>
+                        <a class="btn btn-secondary" id="dlKick" download="kick.mid">Download .mid</a>
+                    </div>
+                </div>
+
+                <!-- Snare Card -->
+                <div class="stem-card">
+                    <div class="stem-card-header">
+                        <div class="stem-title">🪘 Snare & Rim</div>
+                        <span class="badge badge-buildup">FPC Pad 3 (D3)</span>
+                    </div>
+                    <div class="file-info">Humanized rolls & syncopated accents</div>
+                    <div class="stem-actions">
+                        <button class="btn-icon" id="playSnare" title="Play Preview">▶</button>
+                        <a class="btn btn-secondary" id="dlSnare" download="snare.mid">Download .mid</a>
+                    </div>
+                </div>
+
+                <!-- Hi-Hat Card -->
+                <div class="stem-card">
+                    <div class="stem-card-header">
+                        <div class="stem-title">🎩 Hi-Hat (Closed/Open)</div>
+                        <span class="badge badge-constant">FPC Pad 7 (F#3)</span>
+                    </div>
+                    <div class="file-info">Groove swing & velocity dynamics</div>
+                    <div class="stem-actions">
+                        <button class="btn-icon" id="playHiHat" title="Play Preview">▶</button>
+                        <a class="btn btn-secondary" id="dlHiHat" download="hihat.mid">Download .mid</a>
+                    </div>
+                </div>
+
+                <!-- Cymbals Card -->
+                <div class="stem-card">
+                    <div class="stem-card-header">
+                        <div class="stem-title">💥 Cymbals & Toms</div>
+                        <span class="badge badge-slow">FPC Crash/Ride</span>
+                    </div>
+                    <div class="file-info">Section transition crashes & tom fills</div>
+                    <div class="stem-actions">
+                        <button class="btn-icon" id="playCymbals" title="Play Preview">▶</button>
+                        <a class="btn btn-secondary" id="dlCymbals" download="cymbals.mid">Download .mid</a>
+                    </div>
+                </div>
+
+                <!-- Piano Card -->
+                <div class="stem-card">
+                    <div class="stem-card-header">
+                        <div class="stem-title">🎹 Piano</div>
+                        <span class="badge badge-constant">FLEX / VST</span>
+                    </div>
+                    <div class="file-info">Clean harmonic blueprint chords</div>
+                    <div class="stem-actions">
+                        <button class="btn-icon" id="playPiano" title="Play Preview">▶</button>
+                        <a class="btn btn-secondary" id="dlPiano" download="piano.mid">Download .mid</a>
+                    </div>
+                </div>
+
+                <!-- Guitar Card -->
+                <div class="stem-card">
+                    <div class="stem-card-header">
+                        <div class="stem-title">🎸 Guitar</div>
+                        <span class="badge badge-buildup">FLEX / VST</span>
+                    </div>
+                    <div class="file-info">Arpeggiated & rhythmic riffs</div>
+                    <div class="stem-actions">
+                        <button class="btn-icon" id="playGuitar" title="Play Preview">▶</button>
+                        <a class="btn btn-secondary" id="dlGuitar" download="guitar.mid">Download .mid</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/static/js/visualizer.js"></script>
+</body>
+</html>
