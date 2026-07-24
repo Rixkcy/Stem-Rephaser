@@ -1,35 +1,59 @@
 import mido
+import mido.midifiles.meta as meta
 import json
 import math
+
+# Monkey patch mido's KeySignature decoder to handle corrupt AI MIDI files (e.g. 12 sharps)
+_orig_key_decode = meta.MetaSpec_key_signature.decode
+
+def safe_decode_key_signature(self, msg, data):
+    try:
+        _orig_key_decode(self, msg, data)
+    except Exception:
+        msg.key = 'C'  # Default safe key if AI MIDI contains corrupt key meta bytes
+
+meta.MetaSpec_key_signature.decode = safe_decode_key_signature
 
 def parse_midi_file(file_path):
     """
     Parses a MIDI file using mido and converts its contents into a structured,
     bar-by-bar JSON timeline suitable for LLM analysis.
+    Safely handles corrupt or non-standard meta messages from AI generators.
     """
-    mid = mido.MidiFile(file_path)
+    try:
+        mid = mido.MidiFile(file_path, clip=True)
+    except Exception as e:
+        # Fallback with type_checks=False if file header has non-standard values
+        mid = mido.MidiFile(file_path, clip=True, type_checks=False)
+
     ticks_per_beat = mid.ticks_per_beat if mid.ticks_per_beat else 480
     
     # 1. Determine tempo and BPM (default 120 BPM = 500,000 microseconds per beat)
     tempo = 500000
     for track in mid.tracks:
-        for msg in track:
-            if msg.type == 'set_tempo':
-                tempo = msg.tempo
-                break
+        try:
+            for msg in track:
+                if msg.type == 'set_tempo':
+                    tempo = msg.tempo
+                    break
+        except Exception:
+            continue
     bpm = round(mido.tempo2bpm(tempo), 2)
     
     # Time signature default 4/4
     time_num = 4
     time_den = 4
     for track in mid.tracks:
-        for msg in track:
-            if msg.type == 'time_signature':
-                time_num = msg.numerator
-                time_den = msg.denominator
-                break
+        try:
+            for msg in track:
+                if msg.type == 'time_signature':
+                    time_num = msg.numerator
+                    time_den = msg.denominator
+                    break
+        except Exception:
+            continue
                 
-    ticks_per_bar = int(ticks_per_beat * time_num * (4 / time_den))
+    ticks_per_bar = int(ticks_per_beat * time_num * (4 / max(1, time_den)))
     
     # 2. Extract note events across all tracks
     all_notes = []
@@ -38,23 +62,28 @@ def parse_midi_file(file_path):
         current_tick = 0
         active_notes = {}  # pitch -> (start_tick, velocity, channel)
         
-        for msg in track:
-            current_tick += msg.time
-            
-            if msg.type == 'note_on' and msg.velocity > 0:
-                active_notes[msg.note] = (current_tick, msg.velocity, msg.channel)
-            elif msg.type == 'note_off' or (msg.type == 'note_on' and msg.velocity == 0):
-                if msg.note in active_notes:
-                    start_tick, vel, chan = active_notes.pop(msg.note)
-                    duration_ticks = current_tick - start_tick
-                    all_notes.append({
-                        'pitch': msg.note,
-                        'velocity': vel,
-                        'start_tick': start_tick,
-                        'duration_ticks': max(1, duration_ticks),
-                        'channel': chan,
-                        'track': track_idx
-                    })
+        try:
+            for msg in track:
+                if hasattr(msg, 'time'):
+                    current_tick += msg.time
+                    
+                if msg.type == 'note_on' and msg.velocity > 0:
+                    active_notes[msg.note] = (current_tick, msg.velocity, getattr(msg, 'channel', 0))
+                elif msg.type == 'note_off' or (msg.type == 'note_on' and msg.velocity == 0):
+                    if msg.note in active_notes:
+                        start_tick, vel, chan = active_notes.pop(msg.note)
+                        duration_ticks = current_tick - start_tick
+                        all_notes.append({
+                            'pitch': msg.note,
+                            'velocity': vel,
+                            'start_tick': start_tick,
+                            'duration_ticks': max(1, duration_ticks),
+                            'channel': chan,
+                            'track': track_idx
+                        })
+        except Exception as err:
+            print(f"Warning: Ignored corrupt track event in track {track_idx}: {err}")
+            continue
                     
     # Sort notes by start tick
     all_notes.sort(key=lambda x: (x['start_tick'], x['pitch']))
@@ -93,7 +122,6 @@ def parse_midi_file(file_path):
                 
         rhythmic_density = len(occupied_16ths) / 16.0
         
-        # Simplified notes list for LLM context
         simplified_notes = []
         for n in notes_in_bar:
             rel_beat = round((n['start_tick'] - bar_start) / ticks_per_beat, 3)
