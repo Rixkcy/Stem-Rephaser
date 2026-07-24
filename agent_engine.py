@@ -21,9 +21,6 @@ SUPPORTED_MODELS = [
 ]
 
 def call_gemini_with_failover(prompt, system_instruction="You are an expert AI music producer, MIDI analyzer, and agentic assistant."):
-    """
-    Calls Gemini API trying all available API keys and supported models with retries.
-    """
     last_error = None
 
     for key in API_KEYS:
@@ -51,7 +48,6 @@ def call_gemini_with_failover(prompt, system_instruction="You are an expert AI m
     raise RuntimeError(f"Gemini API failover exhausted. Last error: {last_error}")
 
 def extract_json_block(text):
-    """Robust JSON extraction and repair for LLM responses."""
     text = text.strip()
     match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
     if match:
@@ -62,17 +58,32 @@ def extract_json_block(text):
     json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
     
     try:
-        return json.loads(json_str)
+        res = json.loads(json_str)
+        if isinstance(res, list):
+            return {"notes": res}
+        return res
     except json.JSONDecodeError:
         match_raw = re.search(r'\{[\s\S]*\}', json_str)
         if match_raw:
             cleaned = re.sub(r',\s*([\]}])', r'\1', match_raw.group(0))
             try:
-                return json.loads(cleaned)
+                res = json.loads(cleaned)
+                if isinstance(res, list):
+                    return {"notes": res}
+                return res
             except Exception:
                 pass
                 
-        # Regex note extractor fallback
+        # Regex list extractor fallback
+        match_list = re.search(r'\[\s*\{[\s\S]*\}\s*\]', json_str)
+        if match_list:
+            cleaned_list = re.sub(r',\s*([\]}])', r'\1', match_list.group(0))
+            try:
+                return {"notes": json.loads(cleaned_list)}
+            except Exception:
+                pass
+
+        # Note-by-note regex extraction fallback
         notes = []
         for m in re.finditer(r'\{\s*"bar"\s*:\s*(\d+)[\s\S]*?"beat"\s*:\s*([\d\.]+)[\s\S]*?"pitch"\s*:\s*(\d+)[\s\S]*?"vel"\s*:\s*(\d+)[\s\S]*?"dur"\s*:\s*([\d\.]+)\s*\}', text):
             notes.append({
@@ -84,12 +95,11 @@ def extract_json_block(text):
             })
             
         if notes:
-            return {"notes": notes, "drums": notes}
+            return {"notes": notes}
             
         raise ValueError("Could not parse JSON note structure from response")
 
 def analyze_master_blueprint(midi1_data, midi2_data):
-    """Stage 1: Analyzes overall structure and section markers."""
     total_bars = max(midi1_data['total_bars'], midi2_data['total_bars'])
     bpm = midi1_data.get('bpm', 120)
     
@@ -117,7 +127,7 @@ MIDI 2 Summary:
 {json.dumps(summary2[:64])}
 
 Label each section with one of: "CONSTANT_BEAT", "BUILD_UP", "BREAK_DROP", "SLOW".
-Return JSON:
+Return strictly JSON format:
 {{
   "total_bars": {total_bars},
   "bpm": {bpm},
@@ -129,120 +139,121 @@ Return JSON:
     try:
         response_text = call_gemini_with_failover(prompt)
         blueprint = extract_json_block(response_text)
-        return blueprint
+        if 'sections' in blueprint:
+            return blueprint
     except Exception as e:
         print(f"Blueprint analysis fallback: {e}")
-        sections = []
-        q = max(1, total_bars // 4)
-        sections.append({"start_bar": 1, "end_bar": q, "type": "CONSTANT_BEAT", "description": "Intro"})
-        sections.append({"start_bar": q + 1, "end_bar": q * 2, "type": "BUILD_UP", "description": "Build-up"})
-        sections.append({"start_bar": q * 2 + 1, "end_bar": q * 3, "type": "BREAK_DROP", "description": "Drop"})
-        sections.append({"start_bar": q * 3 + 1, "end_bar": total_bars, "type": "SLOW", "description": "Outro"})
-        return {"total_bars": total_bars, "bpm": bpm, "sections": sections}
+
+    sections = []
+    q = max(1, total_bars // 4)
+    sections.append({"start_bar": 1, "end_bar": q, "type": "CONSTANT_BEAT", "description": "Intro Groove"})
+    sections.append({"start_bar": q + 1, "end_bar": q * 2, "type": "BUILD_UP", "description": "Rhythm Build-up"})
+    sections.append({"start_bar": q * 2 + 1, "end_bar": q * 3, "type": "BREAK_DROP", "description": "Main Drop"})
+    sections.append({"start_bar": q * 3 + 1, "end_bar": total_bars, "type": "SLOW", "description": "Outro Breakdown"})
+    return {"total_bars": total_bars, "bpm": bpm, "sections": sections}
 
 def llm_pattern_reconstruction(midi1_data, midi2_data, instrument_type="Drums", user_feedback=None):
     """
     LLM Pattern Recognition & Reconstruction Engine:
-    Receives full note event listings of MIDI 1 and MIDI 2, performs pattern recognition,
-    fills missing hits, purges spurious ghost hits, normalizes pitches, quantizes timing,
-    and incorporates user feedback if provided.
+    Processes the song in 16-bar chunks so Gemini Flash LLM generates COMPLETE, untruncated note streams.
     """
     total_bars = max(midi1_data['total_bars'], midi2_data['total_bars'])
     bpm = midi1_data.get('bpm', 120)
     
-    # Prepare full bar-by-bar note streams
-    notes1 = []
+    # Extract note maps by bar
+    map1 = {}
     for b in midi1_data['bars']:
-        for n in b['notes']:
-            notes1.append({'bar': b['bar'], 'beat': n['beat'], 'pitch': n['pitch'], 'vel': n['vel'], 'dur': n['dur']})
-            
-    notes2 = []
+        map1[b['bar']] = b['notes']
+        
+    map2 = {}
     for b in midi2_data['bars']:
-        for n in b['notes']:
-            notes2.append({'bar': b['bar'], 'beat': n['beat'], 'pitch': n['pitch'], 'vel': n['vel'], 'dur': n['dur']})
+        map2[b['bar']] = b['notes']
 
-    feedback_instruction = ""
-    if user_feedback:
-        feedback_instruction = f"""
-IMPORTANT USER FEEDBACK FOR THIS REVISION:
-"{user_feedback}"
-Apply these exact modifications to the pattern generation!
-"""
+    chunk_size = 16
+    all_reconstructed_notes = []
+    
+    for chunk_start in range(1, total_bars + 1, chunk_size):
+        chunk_end = min(total_bars, chunk_start + chunk_size - 1)
+        
+        notes1_chunk = []
+        for bar in range(chunk_start, chunk_end + 1):
+            for n in map1.get(bar, []):
+                notes1_chunk.append({'bar': bar, 'beat': n['beat'], 'pitch': n['pitch'], 'vel': n['vel'], 'dur': n['dur']})
+                
+        notes2_chunk = []
+        for bar in range(chunk_start, chunk_end + 1):
+            for n in map2.get(bar, []):
+                notes2_chunk.append({'bar': bar, 'beat': n['beat'], 'pitch': n['pitch'], 'vel': n['vel'], 'dur': n['dur']})
 
-    prompt = f"""
-You are an elite AI MIDI producer and pattern recognition engine.
-We are reconstructing an authentic '{instrument_type}' stem from 2 raw AI-transcribed MIDI files.
+        feedback_text = f"\nUser Feedback: {user_feedback}" if user_feedback else ""
 
-Song Parameters:
-- Total Bars: {total_bars}
-- BPM: {bpm}
-- Instrument Type: {instrument_type}
+        prompt = f"""
+You are an expert AI MIDI producer and pattern recognition engine.
+Reconstruct authentic '{instrument_type}' MIDI notes for Bars {chunk_start} to {chunk_end} (Total Bars in Song: {total_bars}, BPM: {bpm}).
+{feedback_text}
 
-{feedback_instruction}
+MIDI 1 NOTES (Bars {chunk_start}-{chunk_end}):
+{json.dumps(notes1_chunk)}
 
-MIDI FILE 1 NOTE STREAM (Total {len(notes1)} notes):
-{json.dumps(notes1[:250])}
+MIDI 2 NOTES (Bars {chunk_start}-{chunk_end}):
+{json.dumps(notes2_chunk)}
 
-MIDI FILE 2 NOTE STREAM (Total {len(notes2)} notes):
-{json.dumps(notes2[:250])}
-
-YOUR PATTERN RECONSTRUCTION TASK:
-1. PATTERN RECOGNITION: Analyze repeating 2-bar, 4-bar, and 8-bar rhythmic/harmonic patterns across all {total_bars} bars.
-2. FILL MISSING HITS: If a hit is missing in one file but present in the other (or required by the repeating pattern), ADD IT.
-3. REMOVE EXCESSIVE / GHOST HITS: Filter out spurious ghost artifacts (such as pitch 81 velocity < 25 artifacts or erratic random hits).
-4. STANDARD INSTRUMENT MAPPING:
-   For Drums (General MIDI / FPC layout):
+INSTRUCTIONS FOR BARS {chunk_start} TO {chunk_end}:
+1. PATTERN RECOGNITION: Recognize repeating groove/rhythmic patterns in these bars.
+2. FILL MISSING HITS: Fill notes missing in one file but required by the repeating pattern.
+3. REMOVE GHOST HITS: Remove spurious pitch 81 / low velocity < 25 artifacts.
+4. MAPPING FOR DRUMS:
    - Kick: Pitch 36 (C3)
-   - Snare: Pitch 38 (D3), Rimshot: Pitch 37
-   - Closed Hi-Hat: Pitch 42 (F#3), Open Hi-Hat: Pitch 46 (A#3)
-   - Crash Cymbal: Pitch 49 (C#4), Ride: Pitch 51
+   - Snare: Pitch 38 (D3), Rim: Pitch 37
+   - Closed Hat: Pitch 42 (F#3), Open Hat: Pitch 46 (A#3)
+   - Crash: Pitch 49 (C#4), Ride: Pitch 51
    - Toms: Pitches 45, 47, 48, 50
-   For Piano/Keyboard or Guitar: Map clean chord/melody pitches (48-84) with proper duration holds.
-5. QUANTIZE & HUMANIZE: Align beats to exact 16th-note positions (0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75) while preserving humanized velocity dynamics (75-120).
+5. QUANTIZE: Snap beats to exact 16th grid positions (0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75). Velocity range 75-120.
 
-Return strictly JSON with this key structure:
-{{
-  "notes": [
-    {{"bar": 1, "beat": 0.0, "pitch": 36, "vel": 105, "dur": 0.25}},
-    {{"bar": 1, "beat": 0.0, "pitch": 49, "vel": 110, "dur": 0.5}},
-    {{"bar": 1, "beat": 1.0, "pitch": 38, "vel": 98, "dur": 0.25}},
-    {{"bar": 1, "beat": 2.0, "pitch": 36, "vel": 102, "dur": 0.25}},
-    {{"bar": 1, "beat": 3.0, "pitch": 38, "vel": 95, "dur": 0.25}}
-  ]
-}}
+Return strictly a JSON array of note objects for Bars {chunk_start} to {chunk_end}:
+[
+  {{"bar": {chunk_start}, "beat": 0.0, "pitch": 36, "vel": 105, "dur": 0.25}},
+  {{"bar": {chunk_start}, "beat": 0.0, "pitch": 49, "vel": 110, "dur": 0.5}},
+  {{"bar": {chunk_start}, "beat": 1.0, "pitch": 38, "vel": 98, "dur": 0.25}},
+  {{"bar": {chunk_start}, "beat": 2.0, "pitch": 36, "vel": 102, "dur": 0.25}},
+  {{"bar": {chunk_start}, "beat": 3.0, "pitch": 38, "vel": 95, "dur": 0.25}}
+]
 """
-    try:
-        response_text = call_gemini_with_failover(prompt)
-        res = extract_json_block(response_text)
-        reconstructed_notes = res.get('notes', res.get('drums', []))
-        if not reconstructed_notes:
-            raise ValueError("No notes array returned from LLM")
-    except Exception as e:
-        print(f"Gemini LLM pattern reconstruction fallback: {e}")
-        reconstructed_notes = fallback_pattern_merge(notes1, notes2, total_bars)
+        try:
+            response_text = call_gemini_with_failover(prompt)
+            res = extract_json_block(response_text)
+            chunk_notes = res.get('notes', res.get('drums', []))
+            if not chunk_notes and isinstance(res, list):
+                chunk_notes = res
+                
+            if not chunk_notes:
+                raise ValueError(f"Empty chunk response for bars {chunk_start}-{chunk_end}")
+            all_reconstructed_notes.extend(chunk_notes)
+        except Exception as e:
+            print(f"Chunk fallback for bars {chunk_start}-{chunk_end}: {e}")
+            fallback_chunk = fallback_pattern_merge(notes1_chunk, notes2_chunk, chunk_start, chunk_end)
+            all_reconstructed_notes.extend(fallback_chunk)
 
-    # Format into instrument stems object
     if instrument_type.lower() == 'drums':
-        stems_data = {'drums': reconstructed_notes, 'piano': [], 'guitar': []}
+        stems_data = {'drums': all_reconstructed_notes, 'piano': [], 'guitar': []}
     elif 'piano' in instrument_type.lower() or 'keyboard' in instrument_type.lower():
-        stems_data = {'drums': [], 'piano': reconstructed_notes, 'guitar': []}
+        stems_data = {'drums': [], 'piano': all_reconstructed_notes, 'guitar': []}
     else:
-        stems_data = {'drums': [], 'piano': [], 'guitar': reconstructed_notes}
+        stems_data = {'drums': [], 'piano': [], 'guitar': all_reconstructed_notes}
         
     return stems_data
 
-def fallback_pattern_merge(notes1, notes2, total_bars):
-    """Algorithmic backup if Gemini API fails or times out."""
+def fallback_pattern_merge(notes1, notes2, start_bar, end_bar):
     merged = []
-    # Combine notes, map pitch 81 -> 42 (Hi-Hat), filter low velocity ghost notes
     for n in notes1 + notes2:
+        if not (start_bar <= n['bar'] <= end_bar):
+            continue
         p = n['pitch']
         v = n['vel']
-        if p == 81 and v < 30: continue # Purge ghost note
+        if p == 81 and v < 30: continue
         if p == 81: p = 42
-        if p == 37: p = 36 # Rim count-in -> Kick
+        if p == 37: p = 36
         
-        # Quantize beat to nearest 16th note (0.25 step)
         q_beat = round(n['beat'] * 4) / 4.0
         
         merged.append({
@@ -253,7 +264,6 @@ def fallback_pattern_merge(notes1, notes2, total_bars):
             'dur': n['dur']
         })
         
-    # Deduplicate notes at same bar, beat, pitch
     seen = set()
     deduped = []
     for n in merged:
