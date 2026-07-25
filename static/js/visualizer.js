@@ -278,6 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
     generateBtn.addEventListener('click', () => runPatternGenerator());
     rerunFeedbackBtn.addEventListener('click', () => runPatternGenerator(document.getElementById('userFeedbackText').value));
 
+
     // Audio Sanitizer Setup
     const audioInput = document.getElementById('audioFilesInput');
     const audioLabel = document.getElementById('audioFilesLabel');
@@ -291,6 +292,52 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Wire up effect toggle checkboxes to enable/disable their control panels
+    const effectToggles = [
+        { chk: 'chkPitchShift', ctrl: 'ctrlPitchShift' },
+        { chk: 'chkWow', ctrl: 'ctrlWow' },
+        { chk: 'chkSpatial', ctrl: 'ctrlSpatial' },
+        { chk: 'chkBinaryCleanup', ctrl: 'ctrlBinaryCleanup' },
+        { chk: 'chkNoiseGate', ctrl: 'ctrlNoiseGate' },
+    ];
+
+    effectToggles.forEach(({ chk, ctrl }) => {
+        const checkbox = document.getElementById(chk);
+        const controls = document.getElementById(ctrl);
+        if (checkbox && controls) {
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) {
+                    controls.classList.remove('effect-controls-disabled');
+                } else {
+                    controls.classList.add('effect-controls-disabled');
+                }
+            });
+        }
+    });
+
+    // Wire up slider <-> number input sync pairs
+    const sliderPairs = [
+        { slider: 'sliderPitchShift', input: 'pitchShiftInput', scale: 1 },
+        { slider: 'sliderWow', input: 'wowDriftInput', scale: 0.0001 },
+        { slider: 'sliderSpatialWidth', input: 'spatialWidthInput', scale: 0.1 },
+        { slider: 'sliderSpatialDelay', input: 'spatialDelayInput', scale: 1 },
+        { slider: 'sliderNoiseGate', input: 'noiseGateInput', scale: 1 },
+    ];
+
+    sliderPairs.forEach(({ slider, input, scale }) => {
+        const sl = document.getElementById(slider);
+        const inp = document.getElementById(input);
+        if (sl && inp) {
+            sl.addEventListener('input', () => {
+                inp.value = (parseFloat(sl.value) * scale).toFixed(scale < 1 ? 4 : 0);
+            });
+            inp.addEventListener('change', () => {
+                sl.value = Math.round(parseFloat(inp.value) / scale);
+            });
+        }
+    });
+
+    // Sanitizer Submit Button
     startSanitizerBtn.addEventListener('click', async () => {
         if (!audioInput.files || audioInput.files.length === 0) {
             alert('Please select audio file(s) to sanitize.');
@@ -301,8 +348,18 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let i = 0; i < audioInput.files.length; i++) {
             formData.append('files', audioInput.files[i]);
         }
+
+        // Append effect enabled flags and parameter values
+        formData.append('pitch_shift_enabled', document.getElementById('chkPitchShift').checked);
         formData.append('pitch_shift_cents', document.getElementById('pitchShiftInput').value);
+        formData.append('wow_enabled', document.getElementById('chkWow').checked);
         formData.append('wow_drift', document.getElementById('wowDriftInput').value);
+        formData.append('spatial_enabled', document.getElementById('chkSpatial').checked);
+        formData.append('spatial_width', document.getElementById('spatialWidthInput').value);
+        formData.append('spatial_delay_ms', document.getElementById('spatialDelayInput').value);
+        formData.append('binary_cleanup_enabled', document.getElementById('chkBinaryCleanup').checked);
+        formData.append('noise_gate_enabled', document.getElementById('chkNoiseGate').checked);
+        formData.append('noise_gate_db', document.getElementById('noiseGateInput').value);
 
         setLoading(startSanitizerBtn, true, 'Submitting Audio Job...');
 

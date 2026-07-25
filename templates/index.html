@@ -204,10 +204,12 @@
 
         <!-- TAB 2: MEDIA SANITIZER (AUDIO) -->
         <div id="tabSanitizerView" class="hidden">
+
+            <!-- Upload Section -->
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">🛡️ Audio Watermark Sanitizer</div>
-                    <div class="file-info">Scrub neural codec watermarks using 3D spatial widening, pitch shifting & micro-wow drift</div>
+                    <div class="card-title">🛡️ Audio Stem Sanitizer</div>
+                    <div class="file-info">Upload one or more audio stems, configure processing effects, and export clean output</div>
                 </div>
 
                 <div class="upload-zone" id="zoneAudio">
@@ -216,29 +218,138 @@
                     <div class="file-info">Supports batch uploading multiple audio files/stems</div>
                     <input type="file" id="audioFilesInput" accept=".mp3,.wav,.flac,.m4a,.ogg" multiple>
                 </div>
+            </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
-                    <div>
-                        <label class="file-label">Resampled Pitch Shift (cents):</label>
-                        <input type="number" id="pitchShiftInput" class="input-field" value="24" min="-100" max="100">
-                        <div class="file-info">Recommended: +24 cents to shift off neural grid</div>
-                    </div>
-                    <div>
-                        <label class="file-label">Micro Wow & Flutter Drift:</label>
-                        <input type="number" step="0.0005" id="wowDriftInput" class="input-field" value="0.0015" min="0" max="0.01">
-                        <div class="file-info">Recommended: 0.0015 (0.15% sinusoidal phase drift)</div>
-                    </div>
+            <!-- Effects Configuration -->
+            <div class="card" style="margin-top: 16px;">
+                <div class="card-header">
+                    <div class="card-title">⚙️ Processing Effects</div>
+                    <div class="file-info">Toggle effects and adjust parameters</div>
                 </div>
 
-                <div style="margin-top: 20px; text-align: right;">
+                <div class="effects-grid">
+
+                    <!-- Effect 1: Pitch Shift -->
+                    <div class="effect-module" id="effectPitchShift">
+                        <div class="effect-header">
+                            <label class="effect-toggle">
+                                <input type="checkbox" id="chkPitchShift" checked>
+                                <span class="effect-toggle-slider"></span>
+                            </label>
+                            <div>
+                                <div class="effect-title">🎵 Pitch Shift (Resampling)</div>
+                                <div class="file-info">Shift pitch off the neural codec sample grid</div>
+                            </div>
+                        </div>
+                        <div class="effect-controls" id="ctrlPitchShift">
+                            <label class="file-label">Shift Amount (cents):</label>
+                            <div class="slider-row">
+                                <input type="range" id="sliderPitchShift" class="effect-slider" min="-100" max="100" value="24" step="1">
+                                <input type="number" id="pitchShiftInput" class="slider-value-input" value="24" min="-100" max="100">
+                            </div>
+                            <div class="file-info">+24 cents recommended (shifts 0.24 semitones up)</div>
+                        </div>
+                    </div>
+
+                    <!-- Effect 2: Micro Wow & Flutter -->
+                    <div class="effect-module" id="effectWow">
+                        <div class="effect-header">
+                            <label class="effect-toggle">
+                                <input type="checkbox" id="chkWow" checked>
+                                <span class="effect-toggle-slider"></span>
+                            </label>
+                            <div>
+                                <div class="effect-title">🌊 Micro Wow & Flutter Drift</div>
+                                <div class="file-info">Sinusoidal phase modulation to break fixed-rate codec framing</div>
+                            </div>
+                        </div>
+                        <div class="effect-controls" id="ctrlWow">
+                            <label class="file-label">Drift Amount:</label>
+                            <div class="slider-row">
+                                <input type="range" id="sliderWow" class="effect-slider" min="0" max="50" value="15" step="1">
+                                <input type="number" id="wowDriftInput" class="slider-value-input" value="0.0015" min="0" max="0.01" step="0.0001">
+                            </div>
+                            <div class="file-info">0.0015 recommended (0.15% drift at 0.35 Hz)</div>
+                        </div>
+                    </div>
+
+                    <!-- Effect 3: 3D Spatial Widening -->
+                    <div class="effect-module" id="effectSpatial">
+                        <div class="effect-header">
+                            <label class="effect-toggle">
+                                <input type="checkbox" id="chkSpatial" checked>
+                                <span class="effect-toggle-slider"></span>
+                            </label>
+                            <div>
+                                <div class="effect-title">🔊 3D Spatial Vector Widening</div>
+                                <div class="file-info">Mid/Side stereo split + Haas delay to break mono-correlated watermarks</div>
+                            </div>
+                        </div>
+                        <div class="effect-controls" id="ctrlSpatial">
+                            <label class="file-label">Stereo Width:</label>
+                            <div class="slider-row">
+                                <input type="range" id="sliderSpatialWidth" class="effect-slider" min="10" max="30" value="15" step="1">
+                                <input type="number" id="spatialWidthInput" class="slider-value-input" value="1.5" min="1.0" max="3.0" step="0.1">
+                            </div>
+                            <label class="file-label" style="margin-top: 10px;">Haas Delay (ms):</label>
+                            <div class="slider-row">
+                                <input type="range" id="sliderSpatialDelay" class="effect-slider" min="5" max="50" value="24" step="1">
+                                <input type="number" id="spatialDelayInput" class="slider-value-input" value="24" min="5" max="50" step="1">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Effect 4: Binary / Watermark Cleanup -->
+                    <div class="effect-module" id="effectBinaryCleanup">
+                        <div class="effect-header">
+                            <label class="effect-toggle">
+                                <input type="checkbox" id="chkBinaryCleanup" checked>
+                                <span class="effect-toggle-slider"></span>
+                            </label>
+                            <div>
+                                <div class="effect-title">🧹 Binary Data & Watermark Cleanup</div>
+                                <div class="file-info">Notch out 8kHz carrier tones, strip LSB data, low-pass at 20kHz, redither</div>
+                            </div>
+                        </div>
+                        <div class="effect-controls" id="ctrlBinaryCleanup">
+                            <div class="file-info" style="color: var(--sec-constant);">✓ Removes 8kHz watermark carrier tone<br>✓ Strips ultrasonic content >20kHz<br>✓ Redithers LSBs with clean TPDF noise<br>✓ Scrubs steganographic binary payload</div>
+                        </div>
+                    </div>
+
+                    <!-- Effect 5: Intelligent Noise Gate -->
+                    <div class="effect-module" id="effectNoiseGate">
+                        <div class="effect-header">
+                            <label class="effect-toggle">
+                                <input type="checkbox" id="chkNoiseGate">
+                                <span class="effect-toggle-slider"></span>
+                            </label>
+                            <div>
+                                <div class="effect-title">🔇 Intelligent Noise Gate</div>
+                                <div class="file-info">Mute audio below threshold with 50ms hold + 100ms smooth release cool-off</div>
+                            </div>
+                        </div>
+                        <div class="effect-controls effect-controls-disabled" id="ctrlNoiseGate">
+                            <label class="file-label">Threshold (dBFS):</label>
+                            <div class="slider-row">
+                                <input type="range" id="sliderNoiseGate" class="effect-slider" min="-80" max="-5" value="-30" step="1">
+                                <input type="number" id="noiseGateInput" class="slider-value-input" value="-30" min="-80" max="-5" step="1">
+                            </div>
+                            <div class="file-info">-30 dBFS recommended (mutes noise floor but preserves all playing hits)</div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div style="margin-top: 24px; text-align: right;">
                     <button class="btn" id="startSanitizerBtn">✨ Start Media Sanitization</button>
                 </div>
             </div>
 
-            <div class="card hidden" id="sanitizerResultsCard" style="margin-top: 24px;">
+            <!-- Processing Status & Downloads -->
+            <div class="card hidden" id="sanitizerResultsCard" style="margin-top: 16px;">
                 <div class="card-header">
-                    <div class="card-title">Processing Status</div>
-                    <div id="sanitizerStatusBadge" class="badge badge-constant">Processing</div>
+                    <div class="card-title">📊 Processing Status</div>
+                    <div id="sanitizerStatusBadge" class="badge badge-buildup">Processing</div>
                 </div>
 
                 <div class="progress-bar-container">

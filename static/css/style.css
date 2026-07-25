@@ -375,3 +375,145 @@ canvas {
 .hidden {
     display: none !important;
 }
+
+/* Effect Modules */
+.effects-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.effect-module {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px 20px;
+    transition: all 0.3s ease;
+}
+
+.effect-module:hover {
+    border-color: rgba(0, 240, 255, 0.2);
+}
+
+.effect-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.effect-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.effect-controls {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    transition: opacity 0.3s ease;
+}
+
+.effect-controls-disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+/* Toggle Switch */
+.effect-toggle {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 26px;
+    flex-shrink: 0;
+}
+
+.effect-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.effect-toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 26px;
+    transition: 0.3s;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.effect-toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 2px;
+    bottom: 2px;
+    background: #666;
+    border-radius: 50%;
+    transition: 0.3s;
+}
+
+.effect-toggle input:checked + .effect-toggle-slider {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border-color: var(--primary);
+}
+
+.effect-toggle input:checked + .effect-toggle-slider:before {
+    transform: translateX(22px);
+    background: #fff;
+}
+
+/* Slider Row */
+.slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.effect-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    cursor: pointer;
+}
+
+.effect-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--primary-glow);
+    transition: all 0.2s;
+}
+
+.effect-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 14px var(--primary-glow);
+}
+
+.slider-value-input {
+    width: 80px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    text-align: center;
+}
+
+.slider-value-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
