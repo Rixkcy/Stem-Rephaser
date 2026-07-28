@@ -99,15 +99,30 @@ def apply_3d_spatial(audio, sr, width, delay_ms):
     
     # Mid/Side decomposition
     mid = (left + right) / 2.0
-    side = (left - right) / 2.0 * width
+    side = (left - right) / 2.0
     
-    left_wide = mid + side
-    right_wide = mid - side
+    # Apply width scaling to the side channel only (not mid)
+    # Cap effective width to prevent extreme imbalance
+    effective_width = min(width, 2.5)
+    side_widened = side * effective_width
     
-    # Haas effect delay on right channel
-    delay_samples = int(sr * delay_ms / 1000.0)
-    if delay_samples > 0:
-        right_wide = np.pad(right_wide, (delay_samples, 0))[:len(right_wide)]
+    left_wide = mid + side_widened
+    right_wide = mid - side_widened
+    
+    # Symmetric Haas delay: split delay between BOTH channels
+    # Left gets half-delay forward, Right gets half-delay forward
+    # This preserves perceived center while adding spatial depth
+    half_delay = int(sr * (delay_ms / 2.0) / 1000.0)
+    if half_delay > 0:
+        left_wide = np.pad(left_wide, (half_delay, 0))[:len(left_wide)]
+        right_wide = np.pad(right_wide, (0, half_delay))[:len(right_wide)]
+    
+    # Normalize L/R RMS levels to preserve stereo balance
+    rms_l = np.sqrt(np.mean(left_wide**2)) + 1e-12
+    rms_r = np.sqrt(np.mean(right_wide**2)) + 1e-12
+    rms_avg = (rms_l + rms_r) / 2.0
+    left_wide = left_wide * (rms_avg / rms_l)
+    right_wide = right_wide * (rms_avg / rms_r)
     
     # Light reverb diffusion + limiter
     board = Pedalboard([
