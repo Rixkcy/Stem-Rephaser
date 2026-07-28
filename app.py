@@ -7,7 +7,6 @@ import scipy.signal as signal
 import soundfile as sf
 from pydub import AudioSegment
 from flask import Flask, render_template, request, jsonify, send_from_directory
-from pedalboard import Pedalboard, Reverb, Limiter
 
 import midi_parser
 import agent_engine
@@ -73,6 +72,8 @@ def apply_micro_wow(audio, sr, drift):
     if drift == 0.0:
         return audio
     
+    from scipy.interpolate import CubicSpline
+    
     n_samples = audio.shape[0]
     t = np.arange(n_samples) / sr
     mod_freq = 0.35
@@ -81,9 +82,11 @@ def apply_micro_wow(audio, sr, drift):
     cumulative_phase = np.cumsum(speed_curve)
     cumulative_phase = cumulative_phase / cumulative_phase[-1] * (n_samples - 1)
     
+    original_indices = np.arange(n_samples)
     result = []
     for ch in range(audio.shape[1]):
-        warped = np.interp(cumulative_phase, np.arange(n_samples), audio[:, ch])
+        cs = CubicSpline(original_indices, audio[:, ch])
+        warped = cs(cumulative_phase)
         result.append(warped)
     
     return np.column_stack(result)
@@ -91,8 +94,8 @@ def apply_micro_wow(audio, sr, drift):
 # --- Effect 3: 3D Spatial Vector Widening ---
 def apply_3d_spatial(audio, sr, width, delay_ms):
     """
-    Mid/Side stereo widening + Haas delay + light reverb diffusion.
-    Splits audio into 3D vector space to break mono-correlated watermark carriers.
+    Pure transparent Mid/Side stereo widening + symmetric Haas delay.
+    No reverb, no limiter — preserves original audio quality.
     """
     left = audio[:, 0]
     right = audio[:, 1]
@@ -101,55 +104,48 @@ def apply_3d_spatial(audio, sr, width, delay_ms):
     mid = (left + right) / 2.0
     side = (left - right) / 2.0
     
-    # Apply width scaling to the side channel only (not mid)
-    # Cap effective width to prevent extreme imbalance
+    # Apply width scaling to side channel only
     effective_width = min(width, 2.5)
     side_widened = side * effective_width
     
     left_wide = mid + side_widened
     right_wide = mid - side_widened
     
-    # Symmetric Haas delay: split delay between BOTH channels
-    # Left gets half-delay forward, Right gets half-delay forward
-    # This preserves perceived center while adding spatial depth
+    # Symmetric Haas micro-delay: split between both channels
     half_delay = int(sr * (delay_ms / 2.0) / 1000.0)
     if half_delay > 0:
         left_wide = np.pad(left_wide, (half_delay, 0))[:len(left_wide)]
         right_wide = np.pad(right_wide, (0, half_delay))[:len(right_wide)]
     
-    # Normalize L/R RMS levels to preserve stereo balance
+    # Normalize L/R RMS to preserve stereo balance
     rms_l = np.sqrt(np.mean(left_wide**2)) + 1e-12
     rms_r = np.sqrt(np.mean(right_wide**2)) + 1e-12
     rms_avg = (rms_l + rms_r) / 2.0
     left_wide = left_wide * (rms_avg / rms_l)
     right_wide = right_wide * (rms_avg / rms_r)
     
-    # Light reverb diffusion + limiter
-    board = Pedalboard([
-        Reverb(room_size=0.15, wet_level=0.1, dry_level=0.9),
-        Limiter(threshold_db=-0.5)
-    ])
+    # Soft clip to prevent any overs (transparent, no dynamic squashing)
+    left_wide = np.tanh(left_wide * 0.98) / np.tanh(0.98)
+    right_wide = np.tanh(right_wide * 0.98) / np.tanh(0.98)
     
-    processed_l = board(left_wide, sample_rate=sr)
-    processed_r = board(right_wide, sample_rate=sr)
-    
-    min_len = min(len(processed_l), len(processed_r))
-    return np.column_stack([processed_l[:min_len], processed_r[:min_len]])
+    min_len = min(len(left_wide), len(right_wide))
+    return np.column_stack([left_wide[:min_len], right_wide[:min_len]])
 
 # --- Effect 4: Inaudible Binary / Sub-threshold Noise Cleanup ---
 def apply_binary_cleanup(audio, sr):
     """
-    Scrub inaudible binary data & watermark carriers:
-    1. Notch filter at 8kHz (common Suno watermark carrier)
-    2. Flatten LSB noise floor (dither with clean TPDF noise)
-    3. Strip ultrasonic content above 20kHz
+    Surgical watermark scrubbing — only touches inaudible content:
+    1. Narrow notch filters at watermark carrier frequencies
+    2. Low-pass at 20kHz (strip ultrasonic data)
+    3. LSB scrub ONLY in near-silent regions (below -60 dBFS)
+       so audible audio is completely untouched
     """
     result = audio.copy()
     
-    # Notch out 8kHz watermark carrier tone
+    # Notch out watermark carrier tones (very narrow Q=50, surgical)
     for freq in [8000, 8016]:
         if freq < sr / 2:
-            b_notch, a_notch = signal.iirnotch(freq / (sr / 2), Q=30)
+            b_notch, a_notch = signal.iirnotch(freq / (sr / 2), Q=50)
             for ch in range(result.shape[1]):
                 result[:, ch] = signal.filtfilt(b_notch, a_notch, result[:, ch])
     
@@ -157,21 +153,31 @@ def apply_binary_cleanup(audio, sr):
     if sr > 40000:
         nyq = sr / 2
         cutoff = min(20000, nyq - 100)
-        b_lp, a_lp = signal.butter(6, cutoff / nyq, btype='low')
+        b_lp, a_lp = signal.butter(4, cutoff / nyq, btype='low')
         for ch in range(result.shape[1]):
             result[:, ch] = signal.filtfilt(b_lp, a_lp, result[:, ch])
     
-    # Redither LSBs with clean TPDF noise (strips any steganographic data in LSBs)
-    bit_depth = 16
-    lsb_level = 1.0 / (2 ** (bit_depth - 1))
-    tpdf_noise = (np.random.triangular(-1, 0, 1, size=result.shape) * lsb_level)
+    # LSB scrub ONLY in near-silent regions (below -60 dBFS)
+    # This preserves all audible audio quality while stripping
+    # steganographic data hidden in the noise floor
+    silence_threshold = 10.0 ** (-60.0 / 20.0)  # -60 dBFS
+    win_size = int(sr * 0.010)  # 10ms windows
     
-    # Quantize to 16-bit grid then add fresh TPDF dither
-    quantized = np.round(result * (2 ** (bit_depth - 1))) / (2 ** (bit_depth - 1))
-    result = quantized + tpdf_noise * 0.5
-    result = np.clip(result, -1.0, 1.0)
+    mono_abs = np.max(np.abs(result), axis=1)
+    for i in range(0, len(result) - win_size, win_size):
+        win_peak = np.max(mono_abs[i:i + win_size])
+        if win_peak < silence_threshold:
+            # Only scrub LSBs in silent regions
+            bit_depth = 16
+            scale = 2 ** (bit_depth - 1)
+            chunk = result[i:i + win_size]
+            quantized = np.round(chunk * scale) / scale
+            # Add minimal TPDF dither only here
+            lsb = 1.0 / scale
+            dither = np.random.triangular(-1, 0, 1, size=chunk.shape) * lsb * 0.25
+            result[i:i + win_size] = quantized + dither
     
-    return result
+    return np.clip(result, -1.0, 1.0)
 
 # --- Effect 5: Intelligent Adaptive Noise Gate ---
 def apply_noise_gate(audio, sr, threshold_db):
